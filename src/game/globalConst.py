@@ -1,5 +1,6 @@
 from structs import TradeId
 
+
 class Restriction:
     MAX_WOOL = 64
     MAX_EMERALD = 128
@@ -16,6 +17,7 @@ TRADE_COST = {
     TradeId.atk_up: 64,
     TradeId.haste_up: 32,
 }
+
 
 class Reward:
     pass

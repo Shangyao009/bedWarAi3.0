@@ -97,7 +97,8 @@ class Player:
         """recover hp and set position to bed"""
         self.hp = self.hp_bound
         self.alive = True
-        self.pos = self.bed.pos
+        self.pos.r = self.bed.pos.r
+        self.pos.c = self.bed.pos.c
 
     def move(self, direction: Direction):
         """move func, delay moving for MOVE_INTERVAL seconds"""
@@ -115,8 +116,6 @@ class Player:
             # self.reward_collector.add_reward(-0.1, "invalid move")
             return
 
-        self.is_moving = True
-
         def callback():
             self.pos.c = target_c
             self.pos.r = target_r
@@ -125,7 +124,13 @@ class Player:
                 self.hp = 0
             self.is_moving = False
 
-        self.tick_timer.add_timer(seconds=MOVE_INTERVAL, task=callback, forever=False)
+        if MOVE_INTERVAL == 0:
+            callback()
+        else:
+            self.is_moving = True
+            self.tick_timer.add_timer(
+                seconds=MOVE_INTERVAL, task=callback, forever=False
+            )
 
     def set_bed_destroyed(self):
         # self.reward_collector.add_reward(-1, "bed destroyed")

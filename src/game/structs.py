@@ -2,6 +2,8 @@
 
 from enum import Enum
 from typing import Optional
+import numpy as np
+import Settings
 
 
 class Ticks:
@@ -125,38 +127,82 @@ class ActionId:
     HASTE_UP = 17
     ATK_UP = 18
 
-    def matchMoveActionId(heading):
-        if heading == Direction.FORWARD:
-            return ActionId.MOVE_F
-        if heading == Direction.BACK:
-            return ActionId.MOVE_B
-        if heading == Direction.LEFT:
-            return ActionId.MOVE_L
-        if heading == Direction.RIGHT:
-            return ActionId.MOVE_R
 
-        return ActionId.DO_NOTHING
+class PlayerObservation:
+    def __init__(
+        self,
+        height_map: Optional[np.ndarray] = None,
+        diamond_pos: Optional[list[Pos]] = None,
+        gold_pos: Optional[list[Pos]] = None,
+        iron_pos: Optional[list[Pos]] = None,
+        bed_pos: Optional[Pos] = None,
+        op_bed_pos: Optional[Pos] = None,
+        pos: Optional[Pos] = None,
+        op_pos: Optional[Pos] = None,
+        op_alive: Optional[bool] = None,
+        bed_destroyed: Optional[bool] = None,
+        op_bed_destroyed: Optional[bool] = None,
+        hp: Optional[int] = None,
+        hp_bound: Optional[int] = None,
+        haste: Optional[int] = None,
+        atk: Optional[int] = None,
+        wool: Optional[int] = None,
+        emerald: Optional[int] = None,
+        in_cd: Optional[bool] = None,
+        ticks: Optional[int] = None,
+    ) -> None:
+        self.height_map = height_map
+        self.diamond_pos = diamond_pos
+        self.gold_pos = gold_pos
+        self.iron_pos = iron_pos
+        self.bed_pos = bed_pos
+        self.op_bed_pos = op_bed_pos
+        self.pos = pos
+        self.op_pos = op_pos
+        self.op_alive = op_alive
+        self.bed_destroyed = bed_destroyed
+        self.op_bed_destroyed = op_bed_destroyed
+        self.hp = hp
+        self.hp_bound = hp_bound
+        self.haste = haste
+        self.atk = atk
+        self.wool = wool
+        self.emerald = emerald
+        self.in_cd = in_cd
+        self.ticks = ticks
 
-    def matchDiveActionId(heading):
-        if heading == Direction.FORWARD:
-            return ActionId.DIVE_F
-        if heading == Direction.BACK:
-            return ActionId.DIVE_B
-        if heading == Direction.LEFT:
-            return ActionId.DIVE_L
-        if heading == Direction.RIGHT:
-            return ActionId.DIVE_R
+    def veins_to_list(veins: list[Pos], max_len: int):
+        """veins amount is within range of 2 to 4, so need to standardize the length"""
+        rt = []
+        for i in range(max_len):
+            if i < len(veins):
+                rt.extend(veins[i].tolist())
+            else:
+                rt.extend([-1, -1])
+        return rt
 
-        return ActionId.DO_NOTHING
-
-    def matchPlaceActionId(heading):
-        if heading == Direction.FORWARD:
-            return ActionId.PlACE_F
-        if heading == Direction.BACK:
-            return ActionId.PLACE_B
-        if heading == Direction.LEFT:
-            return ActionId.PLACE_L
-        if heading == Direction.RIGHT:
-            return ActionId.PLACE_R
-
-        return ActionId.DO_NOTHING
+    def to_list(self):
+        return np.array(
+            [
+                *self.height_map.flatten(),
+                *PlayerObservation.veins_to_list(self.diamond_pos, 4),
+                *PlayerObservation.veins_to_list(self.gold_pos, 4),
+                *PlayerObservation.veins_to_list(self.iron_pos, 4),
+                *self.bed_pos.tolist(),
+                *self.op_bed_pos.tolist(),
+                *self.pos.tolist(),
+                *self.op_pos.tolist(),
+                int(self.op_alive),
+                int(self.bed_destroyed),
+                int(self.op_bed_destroyed),
+                self.hp,
+                self.hp_bound,
+                self.haste,
+                self.atk,
+                self.wool,
+                self.emerald,
+                int(self.in_cd),
+                (2 * self.ticks) // Settings.FPS,  # count of 0.5s
+            ],
+            dtype=np.int32,
+        )

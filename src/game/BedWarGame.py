@@ -9,10 +9,74 @@ import sys
 from TickTimer import TickTimer
 from Vein import Vein, Bed
 from Player import Player
-from structs import Pos, Mine, PlayerId, RewardCollector, Ticks, Direction, ActionId
+from structs import Pos, Mine, PlayerId, RewardCollector, Ticks
+from structs import Direction, ActionId, PlayerObservation
 from globalConst import Restriction
 import Settings
 from board import MapBoard, DetailBoard
+
+
+def create_veins_randomly(
+    generator: np.random.Generator, tickTimer: TickTimer
+) -> tuple[list[Vein], list[Vein], list[Vein]]:
+    created_pos = []
+    diamondVeins = []
+    goldVeins = []
+    ironVeins = []
+
+    def create_pos():
+        r: int = generator.integers(0, 8, endpoint=False)
+        c: int = generator.integers(0, 8, endpoint=False)
+        p = Pos(r, c)
+        if (r + c) == 0 or (r + c) == 14:
+            return create_pos()
+        for pos in created_pos:
+            if pos == p:
+                return create_pos()
+        return p
+
+    def get_symmetric_pos(pos: Pos):
+        r = pos.r
+        c = pos.c
+        if (r + c) == 7:
+            return Pos(c, r)
+        _r = 7 - r
+        _c = c
+        _r1 = _c
+        _c1 = _r
+        r1 = 7 - _r1
+        c1 = _c1
+        return Pos(r1, c1)
+
+    def create_symmetric_veins(type, num):
+        """create num set of veins with symmetric positions"""
+        for i in range(num):
+            pos = create_pos()
+            pos2 = get_symmetric_pos(pos)
+            created_pos.append(pos)
+            created_pos.append(pos2)
+            match (type):
+                case Mine.diamond:
+                    vein1 = Vein(Mine.diamond, pos, tickTimer)
+                    vein2 = Vein(Mine.diamond, pos2, tickTimer)
+                    diamondVeins.append(vein1)
+                    diamondVeins.append(vein2)
+                case Mine.gold:
+                    vein1 = Vein(Mine.gold, pos, tickTimer)
+                    vein2 = Vein(Mine.gold, pos2, tickTimer)
+                    goldVeins.append(vein1)
+                    goldVeins.append(vein2)
+                case Mine.iron:
+                    vein1 = Vein(Mine.iron, pos, tickTimer)
+                    vein2 = Vein(Mine.iron, pos2, tickTimer)
+                    ironVeins.append(vein1)
+                    ironVeins.append(vein2)
+
+    create_symmetric_veins(Mine.diamond, generator.choice([1, 2], p=[0.8, 0.2]))
+    create_symmetric_veins(Mine.gold, generator.choice([1, 2], p=(0.8, 0.2)))
+    create_symmetric_veins(Mine.iron, generator.choice([1, 2], p=(0.9, 0.1)))
+
+    return (diamondVeins, goldVeins, ironVeins)
 
 
 class BedWarGame(gym.Env):
@@ -49,7 +113,7 @@ class BedWarGame(gym.Env):
         B_collect = [0]
 
         def collectVein(player: Player, vein: Vein, collect: list[int]):
-            if player.is_zero_hp() == False:
+            if player.is_zero_hp():
                 return
             capacity = (
                 Restriction.MAX_EMERALD - player.get_emerald_count()
@@ -77,8 +141,40 @@ class BedWarGame(gym.Env):
                 collectVein(self.player_B, vein, B_collect)
         return (A_collect[0], B_collect[0])
 
-    def _get_observation(self):
-        return None
+    def _get_observation(self) -> np.ndarray:
+        """return observation for both players"""
+        return np.array(
+            [
+                self._get_player_obs(PlayerId.Player_A),
+                self._get_player_obs(PlayerId.Player_B),
+            ]
+        )
+
+    def _get_player_obs(self, player_id: PlayerId) -> np.ndarray:
+        """return observation for one player"""
+        player = self.player_A if player_id == PlayerId.Player_A else self.player_B
+        op = self.player_B if player_id == PlayerId.Player_A else self.player_A
+        return PlayerObservation(
+            height_map=self.height_map,
+            diamond_pos=[vein.pos for vein in self.diamond_veins],
+            gold_pos=[vein.pos for vein in self.gold_veins],
+            iron_pos=[vein.pos for vein in self.iron_veins],
+            bed_pos=player.bed.pos,
+            op_bed_pos=op.bed.pos,
+            pos=player.pos,
+            op_pos=op.pos,
+            op_alive=op.is_alive(),
+            bed_destroyed=player.bed.is_destroyed(),
+            op_bed_destroyed=op.bed.is_destroyed(),
+            hp=player.hp,
+            hp_bound=player.hp_bound,
+            haste=player.haste,
+            atk=player.atk,
+            wool=player.wool,
+            emerald=player.emerald,
+            in_cd=player.in_cd,
+            ticks=self.ticks._val,
+        ).to_list()
 
     def _get_info(self):
         return {}
@@ -88,6 +184,15 @@ class BedWarGame(gym.Env):
     ) -> tuple[np.ndarray, tuple[int, int], bool, bool, dict]:
         terminated = False
         truncated = False
+
+        if self.game_over:
+            return (
+                self._get_observation(),
+                [0, 0],
+                terminated,
+                truncated,
+                self._get_info(),
+            )
 
         self.reward_collector_A.clear_rewards()
         self.reward_collector_B.clear_rewards()
@@ -126,13 +231,13 @@ class BedWarGame(gym.Env):
             terminated = True
         if A_lose and B_lose:
             print("tie")
-            pass
+            self.game_over = True
         elif A_lose:
             print("B win")
-            pass
+            self.game_over = True
         elif B_lose:
             print("A win")
-            pass
+            self.game_over = True
 
         reward = [
             self.reward_collector_A.get_total_reward(),
@@ -153,24 +258,28 @@ class BedWarGame(gym.Env):
         self.height_map[self.bed_A.pos.r, self.bed_A.pos.c] = 1
         self.height_map[self.bed_B.pos.r, self.bed_B.pos.c] = 1
 
-        self.diamondVeins = [
-            Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
-            Vein(Mine.diamond, Pos(3, 4), self.tick_timer),
-        ]
-        self.goldVeins = [
-            Vein(Mine.gold, Pos(1, 5), self.tick_timer),
-            Vein(Mine.gold, Pos(6, 2), self.tick_timer),
-            Vein(Mine.gold, Pos(5, 7), self.tick_timer),
-            Vein(Mine.gold, Pos(2, 0), self.tick_timer),
-        ]
-        self.ironVeins = [
-            Vein(Mine.iron, Pos(5, 5), self.tick_timer),
-            Vein(Mine.iron, Pos(2, 2), self.tick_timer),
-        ]
+        self.diamond_veins, self.gold_veins, self.iron_veins = create_veins_randomly(
+            self.np_random, self.tick_timer
+        )
+        # self.diamond_veins = [
+        #     Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
+        #     Vein(Mine.diamond, Pos(3, 4), self.tick_timer),
+        # ]
+        # self.gold_veins = [
+        #     Vein(Mine.gold, Pos(1, 5), self.tick_timer),
+        #     Vein(Mine.gold, Pos(6, 2), self.tick_timer),
+        #     Vein(Mine.gold, Pos(5, 7), self.tick_timer),
+        #     Vein(Mine.gold, Pos(2, 0), self.tick_timer),
+        # ]
+        # self.iron_veins = [
+        #     Vein(Mine.iron, Pos(5, 5), self.tick_timer),
+        #     Vein(Mine.iron, Pos(2, 2), self.tick_timer),
+        # ]
+
         self.veins: list[Vein] = (
-            self.diamondVeins
-            + self.goldVeins
-            + self.ironVeins
+            self.diamond_veins
+            + self.gold_veins
+            + self.iron_veins
             + [self.bed_A, self.bed_B]
         )
 
@@ -197,6 +306,7 @@ class BedWarGame(gym.Env):
             priority=3,
         )
 
+        self.game_over = False
         return self._get_observation(), self._get_info()
 
     def _start_death_match(self):
@@ -349,29 +459,34 @@ def parse_key(key, heading_A: Direction, heading_B: Direction):
     return (heading_A, heading_B, action_A, action_B)
 
 
-env = BedWarGame(render_mode="human")
-env._pygame_init()
-env.reset()
-while True:
-    env.step()
-    if env.render_mode == "human":
-        done_action = False  # avoid multiple actions in one frame
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                env.close()
-                sys.exit()
-            if event.type == pygame.KEYDOWN:
-                key = event.key
-                heading_A, heading_B, action_A, action_B = parse_key(
-                    key, env.player_A.heading, env.player_B.heading
-                )
-                env.player_A.heading = heading_A
-                env.player_B.heading = heading_B
-                if done_action:
-                    continue
-                if action_A is not None or action_B is not None:
-                    env.step((action_A, action_B))
-                    done_action = True
-        env.render()
-    elif env.render_mode == "rgb_array":
-        rgb_array = env.render()
+if __name__ == "__main__":
+    env = BedWarGame(render_mode="human")
+    env._pygame_init()
+    observation, info = env.reset()
+    # print(observation)
+    while True:
+        env.step()
+        if env.render_mode == "human":
+            done_action = False  # avoid multiple actions in one frame
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    env.close()
+                    sys.exit()
+                if event.type == pygame.KEYDOWN:
+                    key = event.key
+                    if key == pygame.K_r:
+                        env.reset()
+                        break
+                    heading_A, heading_B, action_A, action_B = parse_key(
+                        key, env.player_A.heading, env.player_B.heading
+                    )
+                    env.player_A.heading = heading_A
+                    env.player_B.heading = heading_B
+                    if done_action:
+                        continue
+                    if action_A is not None or action_B is not None:
+                        env.step((action_A, action_B))
+                        done_action = True
+            env.render()
+        elif env.render_mode == "rgb_array":
+            rgb_array = env.render()
