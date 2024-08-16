@@ -1,6 +1,6 @@
 import gymnasium as gym
 from gymnasium import spaces
-from typing import Optional, Union
+from typing import Optional
 from gymnasium.utils.play import play
 import pygame
 import numpy as np
@@ -11,7 +11,7 @@ from Vein import Vein, Bed
 from Player import Player
 from structs import Pos, Mine, PlayerId, RewardCollector, Ticks
 from structs import Direction, ActionId, PlayerObservation
-from globalConst import Restriction
+from globalConst import Restriction, Reward
 import Settings
 from board import MapBoard, DetailBoard
 
@@ -81,7 +81,7 @@ def create_veins_randomly(
 
 class BedWarGame(gym.Env):
     fps = Settings.FPS
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": Settings.FPS}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": fps}
     window_height = Settings.WINDOW_HEIGHT
     window_width = Settings.WINDOW_WIDTH
 
@@ -92,10 +92,108 @@ class BedWarGame(gym.Env):
             handle_pygame_event: callable, a function that handles pygame
         """
         super(BedWarGame, self).__init__()
-        self.observation_space = spaces.Box(
-            low=0, high=255, shape=(84, 84, 3), dtype=float
+        self._player_obs_space = spaces.Tuple(
+            [
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_BLOCK_HEIGHT,
+                    shape=(8, 8),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=8,
+                    shape=(8,),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=8,
+                    shape=(8,),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=8,
+                    shape=(8,),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=7,
+                    shape=(2,),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=7,
+                    shape=(2,),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=7,
+                    shape=(2,),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=7,
+                    shape=(2,),
+                    dtype=np.int32,
+                ),
+                spaces.Discrete(2),
+                spaces.Discrete(2),
+                spaces.Discrete(2),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_HP,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_HP,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_HASTE,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_ATK,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_WOOL,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_EMERALD,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+                spaces.Discrete(2),
+                spaces.Box(
+                    low=0,
+                    high=Restriction.MAX_TRAINING_TIME * 2,
+                    shape=(),
+                    dtype=np.int32,
+                ),
+            ]
         )
-        self.action_space = spaces.Tuple([spaces.Discrete(5), spaces.Discrete(5)])
+        self.observation_space = spaces.Tuple(
+            [self._player_obs_space, self._player_obs_space]
+        )
+        self.action_space = spaces.Tuple([spaces.Discrete(19), spaces.Discrete(19)])
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
@@ -119,6 +217,7 @@ class BedWarGame(gym.Env):
                 Restriction.MAX_EMERALD - player.get_emerald_count()
             ) // vein.type.value
             collect_mine = min((capacity, vein.mine_counts))
+            collect_mine = 0 if collect_mine < 0 else collect_mine
             player.collect_emerald(collect_mine * vein.type.value)
             collect[0] = collect_mine * vein.type.value
             vein.mine_counts -= collect_mine
@@ -141,13 +240,11 @@ class BedWarGame(gym.Env):
                 collectVein(self.player_B, vein, B_collect)
         return (A_collect[0], B_collect[0])
 
-    def _get_observation(self) -> np.ndarray:
+    def _get_observation(self):
         """return observation for both players"""
-        return np.array(
-            [
-                self._get_player_obs(PlayerId.Player_A),
-                self._get_player_obs(PlayerId.Player_B),
-            ]
+        return (
+            self._get_player_obs(PlayerId.Player_A),
+            self._get_player_obs(PlayerId.Player_B),
         )
 
     def _get_player_obs(self, player_id: PlayerId) -> np.ndarray:
@@ -181,7 +278,7 @@ class BedWarGame(gym.Env):
 
     def step(
         self, action: Optional[tuple[int, int]] = None
-    ) -> tuple[np.ndarray, tuple[int, int], bool, bool, dict]:
+    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[int, int], bool, bool, dict]:
         terminated = False
         truncated = False
 
@@ -200,21 +297,29 @@ class BedWarGame(gym.Env):
         self.tick_timer.tick()
         self.ticks += 1
 
-        a_collect, b_collect = self._collect_emerald_if_vein_stepped()
-
         # make action here
         if action is not None:
             if action[0] is not None:
                 self.player_A.play_action(action[0], self.player_B)
             if action[1] is not None:
-                self.player_B.play_action(action[1], self.player_B)
+                self.player_B.play_action(action[1], self.player_A)
+
+        a_collect, b_collect = self._collect_emerald_if_vein_stepped()
+        if a_collect > 0:
+            self.player_A.reward_collector.add_reward(
+                a_collect * Reward.PER_EMERALD_GAIN, f"collect {a_collect} emerald"
+            )
+        if b_collect > 0:
+            self.player_B.reward_collector.add_reward(
+                b_collect * Reward.PER_EMERALD_GAIN, f"collect {b_collect} emerald"
+            )
 
         # check if player is dead
-        if self.player_A.hp <= 0:
+        if self.player_A.hp <= 0 and self.player_A.is_alive():
             self.player_A.set_dead_if_zero_hp()
             if not self.player_A.bed.is_destroyed():
                 self.player_A.set_revive_timer()
-        if self.player_B.hp <= 0:
+        if self.player_B.hp <= 0 and self.player_B.is_alive():
             self.player_B.set_dead_if_zero_hp()
             if not self.player_B.bed.is_destroyed():
                 self.player_B.set_revive_timer()
@@ -231,18 +336,48 @@ class BedWarGame(gym.Env):
             terminated = True
         if A_lose and B_lose:
             print("tie")
+            self.player_A.reward_collector.add_reward(Reward.TIE, "tie")
+            self.player_B.reward_collector.add_reward(Reward.TIE, "tie")
             self.game_over = True
         elif A_lose:
             print("B win")
+            self.player_A.reward_collector.add_reward(Reward.LOSE, "lose")
+            self.player_B.reward_collector.add_reward(Reward.WIN, "win")
             self.game_over = True
         elif B_lose:
             print("A win")
+            self.player_A.reward_collector.add_reward(Reward.WIN, "win")
+            self.player_B.reward_collector.add_reward(Reward.LOSE, "lose")
             self.game_over = True
+
+        if action is not None and action[0] is not None:
+            self.player_A.reward_collector.add_reward(
+                Reward.STEP_PENALTY, "step penalty"
+            )
+            print("reward A:")
+            for reward_property in self.player_A.reward_collector.rewards:
+                print(reward_property)
+            print()
+
+        if action is not None and action[1] is not None:
+            self.player_B.reward_collector.add_reward(
+                Reward.STEP_PENALTY, "step penalty"
+            )
+            print("reward B:")
+            for reward_property in self.player_B.reward_collector.rewards:
+                print(reward_property)
+            print()
 
         reward = [
             self.reward_collector_A.get_total_reward(),
             self.reward_collector_B.get_total_reward(),
         ]
+
+        if self.ticks._val >= (Restriction.MAX_TRAINING_TIME * self.fps):
+            truncated = True
+            print("max training time exceeded")
+            self.game_over = True
+
         return self._get_observation(), reward, terminated, truncated, self._get_info()
 
     def reset(self, seed=None, options=None):
@@ -261,20 +396,6 @@ class BedWarGame(gym.Env):
         self.diamond_veins, self.gold_veins, self.iron_veins = create_veins_randomly(
             self.np_random, self.tick_timer
         )
-        # self.diamond_veins = [
-        #     Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
-        #     Vein(Mine.diamond, Pos(3, 4), self.tick_timer),
-        # ]
-        # self.gold_veins = [
-        #     Vein(Mine.gold, Pos(1, 5), self.tick_timer),
-        #     Vein(Mine.gold, Pos(6, 2), self.tick_timer),
-        #     Vein(Mine.gold, Pos(5, 7), self.tick_timer),
-        #     Vein(Mine.gold, Pos(2, 0), self.tick_timer),
-        # ]
-        # self.iron_veins = [
-        #     Vein(Mine.iron, Pos(5, 5), self.tick_timer),
-        #     Vein(Mine.iron, Pos(2, 2), self.tick_timer),
-        # ]
 
         self.veins: list[Vein] = (
             self.diamond_veins
@@ -390,6 +511,20 @@ class BedWarGame(gym.Env):
             pygame.display.quit()
             pygame.quit()
 
+    def standardize_observation(observation: np.ndarray) -> np.ndarray:
+        new_obs = observation.copy().astype(float)
+        new_obs[:64] = new_obs[:64] / Restriction.MAX_BLOCK_HEIGHT
+        new_obs[64:88] = new_obs[64:88] / 8
+        new_obs[88:96] = new_obs[88:96] / 7
+        new_obs[99] = new_obs[99] / Restriction.MAX_HP
+        new_obs[100] = new_obs[100] / Restriction.MAX_HP
+        new_obs[101] = new_obs[101] / Restriction.MAX_HASTE
+        new_obs[102] = new_obs[102] / Restriction.MAX_ATK
+        new_obs[103] = new_obs[103] / Restriction.MAX_WOOL
+        new_obs[104] = new_obs[104] / Restriction.MAX_EMERALD
+        new_obs[106] = new_obs[106] / (Restriction.MAX_TRAINING_TIME * 2)
+        return new_obs
+
 
 def parse_key(key, heading_A: Direction, heading_B: Direction):
     action_A: Optional[ActionId] = None
@@ -459,11 +594,15 @@ def parse_key(key, heading_A: Direction, heading_B: Direction):
     return (heading_A, heading_B, action_A, action_B)
 
 
+# seed = 2
+seed = None
 if __name__ == "__main__":
     env = BedWarGame(render_mode="human")
-    env._pygame_init()
-    observation, info = env.reset()
-    # print(observation)
+    env._pygame_init()  # normally done in the first call to render
+    observation, info = env.reset(seed=seed)
+    # print(observation[0].shape)
+    # print(observation[0])
+    # print(BedWarGame.standardize_observation(observation[0]))
     while True:
         env.step()
         if env.render_mode == "human":
@@ -475,7 +614,7 @@ if __name__ == "__main__":
                 if event.type == pygame.KEYDOWN:
                     key = event.key
                     if key == pygame.K_r:
-                        env.reset()
+                        env.reset(seed=seed)
                         break
                     heading_A, heading_B, action_A, action_B = parse_key(
                         key, env.player_A.heading, env.player_B.heading

@@ -47,6 +47,8 @@ class Player:
         return self.hp <= 0
 
     def set_cd_timer(self):
+        print("cd timer set!")
+
         def callback():
             self.in_cd = False
 
@@ -55,6 +57,7 @@ class Player:
         self.tick_timer.add_timer(interval, callback, forever=False)
 
     def set_revive_timer(self):
+        print("revive timer set!")
         self.tick_timer.add_timer(seconds=REVIVE_CYCLE, task=self.revive, forever=False)
 
     def is_alive(self):
@@ -72,7 +75,7 @@ class Player:
             return
         self.hp = 0
         self.alive = False
-        # self.reward_collector.add_reward(-1, "death")
+        self.reward_collector.add_reward(Reward.DEATH, "death")
         self.pos = Pos(-1, -1)
 
     def parse_direction(self, direction: Direction):
@@ -113,7 +116,7 @@ class Player:
             or self.is_moving
             or self.is_invalid_block(target_r, target_c)
         ):
-            # self.reward_collector.add_reward(-0.1, "invalid move")
+            self.reward_collector.add_reward(Reward.INVALID_ACTION, "invalid move")
             return
 
         def callback():
@@ -131,10 +134,6 @@ class Player:
             self.tick_timer.add_timer(
                 seconds=MOVE_INTERVAL, task=callback, forever=False
             )
-
-    def set_bed_destroyed(self):
-        # self.reward_collector.add_reward(-1, "bed destroyed")
-        self.bed.set_destroyed()
 
     def dive(self, direction: Direction, op: "Player"):
         invalid_action = False
@@ -156,21 +155,23 @@ class Player:
             invalid_action = True
 
         if invalid_action:
-            # self.reward_collector.add_reward(-0.1, "invalid dive")
+            self.reward_collector.add_reward(Reward.INVALID_ACTION, "invalid dive")
             return
 
         self.height_map[target_r][target_c] -= 1
         if Pos(target_r, target_c) == self.bed.pos and not self.bed.is_destroyed():
-            # self.reward_collector.add_reward(-1, "bed attacked")
+            self.reward_collector.add_reward(Reward.ATTACK_SELF_BED, "attack self bed")
             if self.height_map[target_r][target_c] == 0:
                 self.bed.set_destroyed()
-
-            self.bed.set_destroyed()
+                self.reward_collector.add_reward(
+                    Reward.BED_DESTROYED, "destroy self bed"
+                )
         if Pos(target_r, target_c) == op.bed.pos and not op.bed.is_destroyed():
-            # self.reward_collector.add_reward(1, "attack op bed")
+            self.reward_collector.add_reward(Reward.ATTACK_BED, "attack op bed")
             if self.height_map[target_r][target_c] == 0:
-                # self.reward_collector.add_reward(1, "destroy op bed")
+                self.reward_collector.add_reward(Reward.DESTROY_BED, "destroy op bed")
                 op.bed.set_destroyed()
+                op.reward_collector.add_reward(Reward.BED_DESTROYED, "bed destroyed")
 
         self.set_cd_timer()
 
@@ -186,24 +187,32 @@ class Player:
         target_c = self.pos.c + dc
         if self.is_invalid_block(target_r, target_c):
             invalid_action = True
+        if self.height_map[target_r][target_c] >= Restriction.MAX_BLOCK_HEIGHT:
+            invalid_action = True
 
         if invalid_action:
-            # self.reward_collector.add_reward(-0.1, "invalid place block")
+            self.reward_collector.add_reward(
+                Reward.INVALID_ACTION, "invalid place block"
+            )
             return
 
         self.height_map[target_r][target_c] += 1
         self.wool -= 1
         if Pos(target_r, target_c) == self.bed.pos and not self.bed.is_destroyed():
-            # self.reward_collector.add_reward(1, "place block on bed")
-            pass
+            disc_reward = (
+                Reward.CONSTRUCT_BED * (16 - self.height_map[target_r][target_c]) / 16
+            )
+            disc_reward = max(0, disc_reward)
+            self.reward_collector.add_reward(disc_reward, "construct bed")
         if Pos(target_r, target_c) == op.bed.pos and not op.bed.is_destroyed():
-            # self.reward_collector.add_reward(-1, "place block on op bed")
-            pass
+            self.reward_collector.add_reward(-Reward.ATTACK_BED, "construct op bed")
 
     def injure(self, damage):
         self.hp = max(0, self.hp - damage)
         damage = min(self.hp, damage)
-        # self.reward_collector.add_reward(-1, "injured")
+        reward = damage * Reward.PER_DAMAGE_TAKE
+        self.reward_collector.add_reward(reward, "injured")
+        return damage
 
     def attack(self, op: "Player"):
         invalid_action = False
@@ -217,14 +226,13 @@ class Player:
             invalid_action = True
 
         if invalid_action:
-            # self.reward_collector.add_reward(-0.1, "invalid attack")
+            self.reward_collector.add_reward(Reward.INVALID_ACTION, "invalid attack")
             return
 
-        op.injure(self.atk)
-        # self.reward_collector.add_reward(1, "attack")
+        damage_deal = op.injure(self.atk)
+        self.reward_collector.add_reward(Reward.PER_DAMAGE_DEAL * damage_deal, "attack")
         if not op.is_alive():
-            # self.reward_collector.add_reward(1, "kill")
-            pass
+            self.reward_collector.add_reward(Reward.KILL_OP, "kill op")
 
         self.set_cd_timer()
 
@@ -242,7 +250,7 @@ class Player:
             invalid_action = True
 
         if invalid_action:
-            # self.reward_collector.add_reward(-0.1, "invalid trade")
+            self.reward_collector.add_reward(Reward.INVALID_ACTION, "invalid trade")
             return
 
         match (trade_id):
@@ -252,37 +260,46 @@ class Player:
                 else:
                     self.wool += 1
                     self.emerald -= TRADE_COST[trade_id]
+                    self.reward_collector.add_reward(Reward.TRADE_WOOL, "trade wool")
             case TradeId.life_potion:
                 if self.hp >= self.hp_bound:
                     invalid_action = True
                 else:
                     self.hp += 1
                     self.emerald -= TRADE_COST[trade_id]
+                    self.reward_collector.add_reward(
+                        Reward.TRADE_LIFE_POTION, "trade life potion"
+                    )
             case TradeId.hp_limit_up:
                 if self.hp_bound >= Restriction.MAX_HP:
                     invalid_action = True
                 else:
                     self.hp_bound += 3
                     self.emerald -= TRADE_COST[trade_id]
+                    self.reward_collector.add_reward(
+                        Reward.TRADE_HP_LIMIT_UP, "trade hp limit up"
+                    )
             case TradeId.atk_up:
                 if self.atk >= Restriction.MAX_ATK:
                     invalid_action = True
                 else:
                     self.atk += 1
                     self.emerald -= TRADE_COST[trade_id]
+                    self.reward_collector.add_reward(
+                        Reward.TRADE_ATK_UP, "trade atk up"
+                    )
             case TradeId.haste_up:
                 if self.haste >= Restriction.MAX_HASTE:
                     invalid_action = True
                 else:
                     self.haste += 1
                     self.emerald -= TRADE_COST[trade_id]
+                    self.reward_collector.add_reward(
+                        Reward.TRADE_HASTE_UP, "trade haste up"
+                    )
 
         if invalid_action:
-            # self.reward_collector.add_reward(-0.1, "invalid trade")
-            return
-        else:
-            # self.reward_collector.add_reward(1, "trade")
-            pass
+            self.reward_collector.add_reward(Reward.INVALID_ACTION, "invalid trade")
 
     def collect_emerald(self, count):
         self.emerald += count

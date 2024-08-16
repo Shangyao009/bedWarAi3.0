@@ -28,6 +28,9 @@ class RewardCollector:
             self.reward = reward
             self.info = info
 
+        def __str__(self) -> str:
+            return f"reward: {self.reward}, info: {self.info}"
+
     def __init__(self, ticks: Ticks) -> None:
         self.rewards: list[RewardCollector.RewardProperty] = []
         self.ticks = ticks
@@ -38,7 +41,7 @@ class RewardCollector:
     def get_total_reward(self) -> float:
         total = 0
         for item in self.rewards:
-            reward = item[0]
+            reward = item.reward
             total += reward
         return total
 
@@ -169,7 +172,7 @@ class PlayerObservation:
         self.wool = wool
         self.emerald = emerald
         self.in_cd = in_cd
-        self.ticks = ticks
+        self.half_second = (2 * ticks) // Settings.FPS
 
     def veins_to_list(veins: list[Pos], max_len: int):
         """veins amount is within range of 2 to 4, so need to standardize the length"""
@@ -178,31 +181,32 @@ class PlayerObservation:
             if i < len(veins):
                 rt.extend(veins[i].tolist())
             else:
-                rt.extend([-1, -1])
+                rt.extend([8, 8])
         return rt
 
-    def to_list(self):
+    def to_list(self) -> np.ndarray:
+        """total len: 107"""
         return np.array(
             [
-                *self.height_map.flatten(),
-                *PlayerObservation.veins_to_list(self.diamond_pos, 4),
-                *PlayerObservation.veins_to_list(self.gold_pos, 4),
-                *PlayerObservation.veins_to_list(self.iron_pos, 4),
-                *self.bed_pos.tolist(),
-                *self.op_bed_pos.tolist(),
-                *self.pos.tolist(),
-                *self.op_pos.tolist(),
-                int(self.op_alive),
-                int(self.bed_destroyed),
-                int(self.op_bed_destroyed),
-                self.hp,
-                self.hp_bound,
-                self.haste,
-                self.atk,
-                self.wool,
-                self.emerald,
-                int(self.in_cd),
-                (2 * self.ticks) // Settings.FPS,  # count of 0.5s
+                *self.height_map.flatten(),  # 64
+                *PlayerObservation.veins_to_list(self.diamond_pos, 4),  # 8
+                *PlayerObservation.veins_to_list(self.gold_pos, 4),  # 8
+                *PlayerObservation.veins_to_list(self.iron_pos, 4),  # 8
+                *self.bed_pos.tolist(),  # 2
+                *self.op_bed_pos.tolist(),  # 2
+                *self.pos.tolist(),  # 2
+                *self.op_pos.tolist(),  # 2
+                int(self.op_alive),  # 1
+                int(self.bed_destroyed),  # 1
+                int(self.op_bed_destroyed),  # 1
+                self.hp,  # 1
+                self.hp_bound,  # 1
+                self.haste,  # 1
+                self.atk,  # 1
+                self.wool,  # 1
+                self.emerald,  # 1
+                int(self.in_cd),  # 1
+                self.half_second,  # 1
             ],
             dtype=np.int32,
         )
