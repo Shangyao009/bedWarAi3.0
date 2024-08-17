@@ -19,8 +19,10 @@ def play(render_mode=None, seed=None):
     observation, info = env.reset(seed=seed)
     env.render()
     while True:
-        action_A = random.choice([i for i in range(19)])
-        action_B = random.choice([i for i in range(19)])
+        # action_A = random.choice([i for i in range(19)])
+        # action_B = random.choice([i for i in range(19)])
+        action_A = ActionId.NONE
+        action_B = ActionId.NONE
         env.step([action_A, action_B])
         if env.render_mode == "human":
             done_action = False  # avoid multiple actions in one frame
@@ -50,9 +52,8 @@ def play(render_mode=None, seed=None):
 
 if __name__ == "__main__":
     register_game()
-    print(gym.envs.registry.keys())
     # gym.make("BedWarGame-v0", render_mode=None)
     # envs = gym.vector.AsyncVectorEnv(
     #     [make_env for i in range(2)]
     # )
-    play(render_mode="human", seed=2)
+    play(render_mode="human", seed=None)

@@ -392,4 +392,4 @@ def demo(n_episodes):
 
 if __name__ == "__main__":
     train(n_updates=n_updates)
-    demo(n_episodes=n_demo)
+    # demo(n_episodes=n_demo)

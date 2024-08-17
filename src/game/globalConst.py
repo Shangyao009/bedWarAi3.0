@@ -29,6 +29,7 @@ class Reward:
     INVALID_ACTION = -0.005
     STEP_PENALTY = -0.001
     PER_EMERALD_GAIN = 0.7
+    CLOSE_TO_VEINS = 0.01
 
     PER_DAMAGE_DEAL = 1
     KILL_OP = 20

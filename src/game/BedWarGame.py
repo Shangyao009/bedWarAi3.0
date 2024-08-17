@@ -192,6 +192,20 @@ class BedWarGame(gym.Env):
     def _get_info(self):
         return {}
 
+    def _calc_close_to_vein_weight(self, pos: Pos):
+        total_weight = 0
+        total_weighted_near = 0
+        for vein in self.veins:
+            total_weight += vein.type.value
+            total_weighted_near += (
+                (14 - pos.distance(vein.pos)) * vein.type.value
+            ) ** 2
+        return (total_weighted_near / total_weight) ** 0.5
+
+    def _get_close_to_veins_reward(self, pos: Pos):
+        reward = self.close_to_veins_reward_map[pos.r, pos.c] * Reward.CLOSE_TO_VEINS
+        return max(reward, 0.0)
+
     def step(
         self, action: tuple[int, int] = [ActionId.NONE, ActionId.NONE]
     ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[float, float], bool, bool, dict]:
@@ -216,6 +230,7 @@ class BedWarGame(gym.Env):
         # make action here
         if not action[0] == ActionId.NONE:
             self.player_A.play_action(action[0], self.player_B)
+
         if not action[1] == ActionId.NONE:
             self.player_B.play_action(action[1], self.player_A)
 
@@ -263,6 +278,13 @@ class BedWarGame(gym.Env):
             self.game_over = True
 
         if not action[0] == ActionId.NONE:
+            if self.player_A.is_alive():
+                _reward = self._get_close_to_veins_reward(self.player_A.pos)
+                print(_reward)
+                self.player_A.reward_collector.add_reward(
+                    _reward,
+                    "close to vein reward",
+                )
             self.player_A.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
@@ -272,6 +294,13 @@ class BedWarGame(gym.Env):
             # print()
 
         if not action[1] == ActionId.NONE:
+            if self.player_B.is_alive():
+                _reward = self._get_close_to_veins_reward(self.player_B.pos)
+                print(_reward)
+                self.player_B.reward_collector.add_reward(
+                    _reward,
+                    "close to vein reward",
+                )
             self.player_B.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
@@ -341,6 +370,15 @@ class BedWarGame(gym.Env):
             forever=False,
             priority=3,
         )
+
+        # for close to vein reward calculation
+        _reward = np.zeros((8, 8))
+        for r in range(8):
+            for c in range(8):
+                _reward[r, c] = self._calc_close_to_vein_weight(Pos(r, c))
+        _min = _reward.min()
+        _max = _reward.max()
+        self.close_to_veins_reward_map = (_reward - _min) / (_max - _min)
 
         self.game_over = False
         return (self._get_observation(), self._get_info())
