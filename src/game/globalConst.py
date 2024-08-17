@@ -1,4 +1,4 @@
-from structs import TradeId
+from game.structs import TradeId
 
 
 class Restriction:

@@ -1,19 +1,18 @@
 import gymnasium as gym
 from gymnasium import spaces
 from typing import Optional
-from gymnasium.utils.play import play
 import pygame
 import numpy as np
 import sys
 
-from TickTimer import TickTimer
-from Vein import Vein, Bed
-from Player import Player
-from structs import Pos, Mine, PlayerId, RewardCollector, Ticks
-from structs import Direction, ActionId, PlayerObservation
-from globalConst import Restriction, Reward
-import Settings
-from board import MapBoard, DetailBoard
+from game.TickTimer import TickTimer
+from game.Vein import Vein, Bed
+from game.Player import Player
+from game.structs import Pos, Mine, PlayerId, RewardCollector, Ticks
+from game.structs import Direction, ActionId, PlayerObservation
+from game.globalConst import Restriction, Reward
+import game.Settings as Settings
+from game.board import MapBoard, DetailBoard
 
 
 def create_veins_randomly(
@@ -92,108 +91,25 @@ class BedWarGame(gym.Env):
             handle_pygame_event: callable, a function that handles pygame
         """
         super(BedWarGame, self).__init__()
-        self._player_obs_space = spaces.Tuple(
+        self._player_obs_space = spaces.MultiDiscrete(
             [
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_BLOCK_HEIGHT,
-                    shape=(8, 8),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=8,
-                    shape=(8,),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=8,
-                    shape=(8,),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=8,
-                    shape=(8,),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=7,
-                    shape=(2,),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=7,
-                    shape=(2,),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=7,
-                    shape=(2,),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=7,
-                    shape=(2,),
-                    dtype=np.int32,
-                ),
-                spaces.Discrete(2),
-                spaces.Discrete(2),
-                spaces.Discrete(2),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_HP,
-                    shape=(),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_HP,
-                    shape=(),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_HASTE,
-                    shape=(),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_ATK,
-                    shape=(),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_WOOL,
-                    shape=(),
-                    dtype=np.int32,
-                ),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_EMERALD,
-                    shape=(),
-                    dtype=np.int32,
-                ),
-                spaces.Discrete(2),
-                spaces.Box(
-                    low=0,
-                    high=Restriction.MAX_TRAINING_TIME * 2,
-                    shape=(),
-                    dtype=np.int32,
-                ),
+                *[Restriction.MAX_BLOCK_HEIGHT + 1 for _ in range(64)],
+                *[9 for _ in range(24)],
+                *[8 for _ in range(8)],
+                *[2 for _ in range(3)],
+                *[Restriction.MAX_HP + 1 for _ in range(2)],
+                Restriction.MAX_HASTE + 1,
+                Restriction.MAX_ATK + 1,
+                Restriction.MAX_WOOL + 1,
+                Restriction.MAX_EMERALD + 1,
+                2,
+                Restriction.MAX_TRAINING_TIME * 2 + 1,
             ]
         )
-        self.observation_space = spaces.Tuple(
-            [self._player_obs_space, self._player_obs_space]
+        self.observation_space = spaces.Dict(
+            {"A": self._player_obs_space, "B": self._player_obs_space}
         )
-        self.action_space = spaces.Tuple([spaces.Discrete(19), spaces.Discrete(19)])
+        self.action_space = spaces.Tuple([spaces.Discrete(20), spaces.Discrete(20)])
 
         assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
@@ -201,9 +117,10 @@ class BedWarGame(gym.Env):
         # for human render purposes
         self.window = None
         """pygame window"""
-
+        self._font = None
+        self._map_board = None
+        self._detail_board = None
         self.clock = None
-        self.reset()
 
     def _collect_emerald_if_vein_stepped(self):
         """check if player collect emerald from vein, if so, add emerald to player and deduct from vein"""
@@ -242,10 +159,9 @@ class BedWarGame(gym.Env):
 
     def _get_observation(self):
         """return observation for both players"""
-        return (
-            self._get_player_obs(PlayerId.Player_A),
-            self._get_player_obs(PlayerId.Player_B),
-        )
+        obs_A = self._get_player_obs(PlayerId.Player_A)
+        obs_B = self._get_player_obs(PlayerId.Player_B)
+        return {"A": obs_A, "B": obs_B}
 
     def _get_player_obs(self, player_id: PlayerId) -> np.ndarray:
         """return observation for one player"""
@@ -277,8 +193,8 @@ class BedWarGame(gym.Env):
         return {}
 
     def step(
-        self, action: Optional[tuple[int, int]] = None
-    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[int, int], bool, bool, dict]:
+        self, action: tuple[int, int] = [ActionId.NONE, ActionId.NONE]
+    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[float, float], bool, bool, dict]:
         terminated = False
         truncated = False
 
@@ -298,11 +214,10 @@ class BedWarGame(gym.Env):
         self.ticks += 1
 
         # make action here
-        if action is not None:
-            if action[0] is not None:
-                self.player_A.play_action(action[0], self.player_B)
-            if action[1] is not None:
-                self.player_B.play_action(action[1], self.player_A)
+        if not action[0] == ActionId.NONE:
+            self.player_A.play_action(action[0], self.player_B)
+        if not action[1] == ActionId.NONE:
+            self.player_B.play_action(action[1], self.player_A)
 
         a_collect, b_collect = self._collect_emerald_if_vein_stepped()
         if a_collect > 0:
@@ -335,50 +250,50 @@ class BedWarGame(gym.Env):
         if A_lose or B_lose:
             terminated = True
         if A_lose and B_lose:
-            print("tie")
             self.player_A.reward_collector.add_reward(Reward.TIE, "tie")
             self.player_B.reward_collector.add_reward(Reward.TIE, "tie")
             self.game_over = True
         elif A_lose:
-            print("B win")
             self.player_A.reward_collector.add_reward(Reward.LOSE, "lose")
             self.player_B.reward_collector.add_reward(Reward.WIN, "win")
             self.game_over = True
         elif B_lose:
-            print("A win")
             self.player_A.reward_collector.add_reward(Reward.WIN, "win")
             self.player_B.reward_collector.add_reward(Reward.LOSE, "lose")
             self.game_over = True
 
-        if action is not None and action[0] is not None:
+        if not action[0] == ActionId.NONE:
             self.player_A.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
-            print("reward A:")
-            for reward_property in self.player_A.reward_collector.rewards:
-                print(reward_property)
-            print()
+            # print("reward A:")
+            # for reward_property in self.player_A.reward_collector.rewards:
+            #     print(reward_property)
+            # print()
 
-        if action is not None and action[1] is not None:
+        if not action[1] == ActionId.NONE:
             self.player_B.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
-            print("reward B:")
-            for reward_property in self.player_B.reward_collector.rewards:
-                print(reward_property)
-            print()
+            # print("reward B:")
+            # for reward_property in self.player_B.reward_collector.rewards:
+            #     print(reward_property)
+            # print()
 
-        reward = [
+        reward = (
             self.reward_collector_A.get_total_reward(),
             self.reward_collector_B.get_total_reward(),
-        ]
+        )
 
         if self.ticks._val >= (Restriction.MAX_TRAINING_TIME * self.fps):
             truncated = True
-            print("max training time exceeded")
+            # print("max training time exceeded")
             self.game_over = True
 
-        return self._get_observation(), reward, terminated, truncated, self._get_info()
+        observation = self._get_observation()
+        info = self._get_info()
+
+        return observation, reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
         # used to seed self.np_random
@@ -428,7 +343,7 @@ class BedWarGame(gym.Env):
         )
 
         self.game_over = False
-        return self._get_observation(), self._get_info()
+        return (self._get_observation(), self._get_info())
 
     def _start_death_match(self):
         def deduct_hp():
@@ -456,28 +371,21 @@ class BedWarGame(gym.Env):
         elif self.render_mode == "human":
             self._render_frame()
 
-    def _pygame_init(self):
-        pygame.init()
-        pygame.display.init()
-        self.window = pygame.display.set_mode((self.window_width, self.window_height))
-        self._font = pygame.font.Font("freesansbold.ttf", 20)
-        self.clock = pygame.time.Clock()
-
-        self._map_board = MapBoard(self._font)
-        self._detail_board = DetailBoard(self._font)
-
     def _render_frame(self):
-        if self.window is None and self.render_mode == "human":
+        if self._map_board is None and (
+            self.render_mode == "rgb_array" or self.render_mode == "human"
+        ):
             pygame.init()
+            self._font = pygame.font.Font("freesansbold.ttf", 20)
+            self._map_board = MapBoard(self._font)
+            self._detail_board = DetailBoard(self._font)
+
+        if self.window is None and self.render_mode == "human":
             pygame.display.init()
             self.window = pygame.display.set_mode(
                 (self.window_width, self.window_height)
             )
-            self._font = pygame.font.Font("freesansbold.ttf", 20)
             self.clock = pygame.time.Clock()
-
-            self._map_board = MapBoard(self._font)
-            self._detail_board = DetailBoard(self._font)
 
         canvas = pygame.Surface((self.window_width, self.window_height))
         canvas.fill((10, 10, 10))
@@ -526,9 +434,11 @@ class BedWarGame(gym.Env):
         return new_obs
 
 
-def parse_key(key, heading_A: Direction, heading_B: Direction):
-    action_A: Optional[ActionId] = None
-    action_B: Optional[ActionId] = None
+def parse_key(
+    key, heading_A: Direction, heading_B: Direction
+) -> tuple[Direction, Direction, ActionId, ActionId]:
+    action_A: ActionId = ActionId.NONE
+    action_B: ActionId = ActionId.NONE
     match key:
         case pygame.K_UP:
             heading_B = Direction.FORWARD
@@ -592,40 +502,3 @@ def parse_key(key, heading_A: Direction, heading_B: Direction):
             action_B = ActionId.ATK_UP
 
     return (heading_A, heading_B, action_A, action_B)
-
-
-# seed = 2
-seed = None
-if __name__ == "__main__":
-    env = BedWarGame(render_mode="human")
-    env._pygame_init()  # normally done in the first call to render
-    observation, info = env.reset(seed=seed)
-    # print(observation[0].shape)
-    # print(observation[0])
-    # print(BedWarGame.standardize_observation(observation[0]))
-    while True:
-        env.step()
-        if env.render_mode == "human":
-            done_action = False  # avoid multiple actions in one frame
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    env.close()
-                    sys.exit()
-                if event.type == pygame.KEYDOWN:
-                    key = event.key
-                    if key == pygame.K_r:
-                        env.reset(seed=seed)
-                        break
-                    heading_A, heading_B, action_A, action_B = parse_key(
-                        key, env.player_A.heading, env.player_B.heading
-                    )
-                    env.player_A.heading = heading_A
-                    env.player_B.heading = heading_B
-                    if done_action:
-                        continue
-                    if action_A is not None or action_B is not None:
-                        env.step((action_A, action_B))
-                        done_action = True
-            env.render()
-        elif env.render_mode == "rgb_array":
-            rgb_array = env.render()

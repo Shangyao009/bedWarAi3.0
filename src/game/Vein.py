@@ -1,6 +1,6 @@
-from structs import Pos, Mine
-from TickTimer import TickTimer
-import Settings
+from game.structs import Pos, Mine
+from game.TickTimer import TickTimer
+import game.Settings as Settings
 
 
 class Vein:

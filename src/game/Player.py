@@ -1,8 +1,8 @@
-from Vein import Bed, Pos
-from TickTimer import TickTimer
-from structs import Direction, RewardCollector, TradeId, ActionId
-from Settings import *
-from globalConst import *
+from game.Vein import Bed, Pos
+from game.TickTimer import TickTimer
+from game.structs import Direction, RewardCollector, TradeId, ActionId
+from game.Settings import *
+from game.globalConst import *
 
 
 class Player:
@@ -47,8 +47,6 @@ class Player:
         return self.hp <= 0
 
     def set_cd_timer(self):
-        print("cd timer set!")
-
         def callback():
             self.in_cd = False
 
@@ -57,7 +55,6 @@ class Player:
         self.tick_timer.add_timer(interval, callback, forever=False)
 
     def set_revive_timer(self):
-        print("revive timer set!")
         self.tick_timer.add_timer(seconds=REVIVE_CYCLE, task=self.revive, forever=False)
 
     def is_alive(self):
@@ -146,9 +143,10 @@ class Player:
         target_r = self.pos.r + dr
         target_c = self.pos.c + dc
 
-        if self.is_invalid_block(target_r, target_c):
-            invalid_action = True
-        if self.height_map[target_r][target_c] <= 0:
+        if (
+            self.is_invalid_block(target_r, target_c)
+            or self.height_map[target_r][target_c] <= 0
+        ):
             invalid_action = True
 
         if Pos(target_r, target_c) == op.pos and op.is_alive():
@@ -185,9 +183,10 @@ class Player:
         dr, dc = self.parse_direction(direction)
         target_r = self.pos.r + dr
         target_c = self.pos.c + dc
-        if self.is_invalid_block(target_r, target_c):
-            invalid_action = True
-        if self.height_map[target_r][target_c] >= Restriction.MAX_BLOCK_HEIGHT:
+        if (
+            self.is_invalid_block(target_r, target_c)
+            or self.height_map[target_r][target_c] >= Restriction.MAX_BLOCK_HEIGHT
+        ):
             invalid_action = True
 
         if invalid_action:

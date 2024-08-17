@@ -2,11 +2,11 @@ import pygame
 from typing import Union
 import numpy as np
 
-from globalConst import Restriction
-from structs import Pos, Mine, Direction, PlayerId
-from Vein import Vein
-from Player import Player
-from Settings import FPS, DEAD_MATCH_COUNTDOWN
+from game.globalConst import Restriction
+from game.structs import Pos, Mine, Direction, PlayerId
+from game.Vein import Vein
+from game.Player import Player
+from game.Settings import FPS, DEAD_MATCH_COUNTDOWN
 
 BOX_SIZE = 70
 COLOR_A = (0, 255, 255)

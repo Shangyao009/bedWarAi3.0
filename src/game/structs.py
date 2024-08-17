@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Optional
 import numpy as np
-import Settings
+import game.Settings as Settings
 
 
 class Ticks:
@@ -130,6 +130,8 @@ class ActionId:
     HASTE_UP = 17
     ATK_UP = 18
 
+    NONE = 19
+
 
 class PlayerObservation:
     def __init__(
@@ -208,5 +210,5 @@ class PlayerObservation:
                 int(self.in_cd),  # 1
                 self.half_second,  # 1
             ],
-            dtype=np.int32,
+            dtype=np.int64,
         )
