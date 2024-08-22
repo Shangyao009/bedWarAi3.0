@@ -22,7 +22,7 @@ class Player:
         self.haste = 0
         self.atk = 1
 
-        self.wool = 8
+        self.wool = 64  # 8
         self.emerald = 0
 
         self.bed = bed
@@ -73,7 +73,7 @@ class Player:
         self.hp = 0
         self.alive = False
         self.reward_collector.add_reward(Reward.DEATH, "death")
-        self.pos = Pos(-1, -1)
+        self.pos = Pos(8, 8)
 
     def parse_direction(self, direction: Direction):
         dr = 0

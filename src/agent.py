@@ -8,8 +8,11 @@ import gymnasium as gym
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from tqdm import tqdm
-from registerGym import register_game, ActionId
 from pathlib import Path
+import sys
+
+from utils import register_game
+from game import BedWarGame, ActionId, Settings, globalConst
 
 
 class SkipFrameWrapper(gym.Wrapper):
@@ -62,21 +65,25 @@ class A2C(nn.Module):
         self.n_envs = n_envs
 
         critic_layers = [
-            nn.Linear(n_features, 2048),
+            nn.Linear(n_features, 512),
             nn.ReLU(),
-            nn.Linear(2048, 512),
+            nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512, 512),  # estimate V(s)
+            nn.Linear(512, 1024),  # estimate V(s)
+            nn.ReLU(),
+            nn.Linear(1024, 512),  # estimate V(s)
             nn.ReLU(),
             nn.Linear(512, 1),
         ]
 
         actor_layers = [
-            nn.Linear(n_features, 2048),
-            nn.ReLU(),
-            nn.Linear(2048, 512),
+            nn.Linear(n_features, 512),
             nn.ReLU(),
             nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1024),  # estimate V(s)
+            nn.ReLU(),
+            nn.Linear(1024, 512),  # estimate V(s)
             nn.ReLU(),
             nn.Linear(
                 512, n_actions
@@ -88,8 +95,8 @@ class A2C(nn.Module):
         self.actor = nn.Sequential(*actor_layers).to(self.device)
 
         # define optimizers for actor and critic
-        self.critic_optim = optim.RMSprop(self.critic.parameters(), lr=critic_lr)
-        self.actor_optim = optim.RMSprop(self.actor.parameters(), lr=actor_lr)
+        self.critic_optim = optim.Adam(self.critic.parameters(), lr=critic_lr)
+        self.actor_optim = optim.Adam(self.actor.parameters(), lr=actor_lr)
 
     def forward(self, x: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -108,7 +115,7 @@ class A2C(nn.Module):
         return (state_values, action_logits_vec)
 
     def select_action(
-        self, x: np.ndarray
+        self, x: np.ndarray, eligible_actions_mask: np.ndarray[np.bool_]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns a tuple of the chosen actions and the log-probs of those actions.
@@ -122,9 +129,16 @@ class A2C(nn.Module):
             state_values: A tensor with the state values, with shape [n_steps_per_update, n_envs].
         """
         state_values, action_logits = self.forward(x)
+        # shape: [n_envs,], [n_envs, n_actions]
+        eligible_actions_mask = (
+            torch.Tensor(eligible_actions_mask).type(torch.bool).to(self.device)
+        )
+        action_logits[~eligible_actions_mask] = -float("inf")
+
         action_pd = torch.distributions.Categorical(
             logits=action_logits
         )  # implicitly uses softmax
+
         actions_A = action_pd.sample()
         action_log_probs = action_pd.log_prob(actions_A)
         entropy = action_pd.entropy()
@@ -203,29 +217,29 @@ class A2C(nn.Module):
 
 model_dir = Path("./models")
 model_path = model_dir.joinpath("A2C.pt")
-n_envs = 8
-skip_frames = 4
-critic_lr = 0.001
-actor_lr = 0.001
+n_envs = 12
+skip_frames = 8
+critic_lr = 7e-5
+actor_lr = 7e-5
 gamma = 0.999
 lam = 0.95  # hyperparameter for GAE
-ent_coef = 0.05  # coefficient for the entropy bonus (to encourage exploration)
+ent_coef = 0.01  # coefficient for the entropy bonus (to encourage exploration)
 n_updates = 10000
 n_demo = 5
 n_steps_per_update = 128  # batch size
 save_every_n_updates = 50
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-obs_size = 107
+obs_size = 48
 n_action = 19
 
 
-def make_env(render_mode=None):
+def  make_env(render_mode=None):
     """Make a gym environment for AsyncVectorEnv"""
     register_game()
     env = gym.make("BedWarGame-v0", render_mode=render_mode)
-    env = gym.wrappers.AutoResetWrapper(env=env)
     env = SkipFrameWrapper(skip_frames, env)
+    env = gym.wrappers.AutoResetWrapper(env=env)
     return env
 
 
@@ -236,6 +250,7 @@ def train(n_updates):
     for i in range(n_envs):
         _make_env.append(make_env)
     envs = gym.vector.AsyncVectorEnv(_make_env)
+    # envs = gym.vector.SyncVectorEnv(_make_env)
 
     agent = A2C(
         n_features=obs_size,
@@ -259,9 +274,11 @@ def train(n_updates):
     actor_losses_B = deque(maxlen=100)
     entropies_A = deque(maxlen=100)
     entropies_B = deque(maxlen=100)
+    rewards_A_deque = deque(maxlen=100)
+    rewards_B_deque = deque(maxlen=100)
 
     # training loop
-    states, info = envs.reset()
+    states, infos = envs.reset()
     for update_i in tqdm(range(1, 1 + n_updates)):
         # data required for one update
         ep_value_preds_A = torch.zeros(n_steps_per_update, n_envs, device=device)
@@ -277,11 +294,15 @@ def train(n_updates):
             # play n_steps_per_update steps in the environment
             states_A = states["A"]  # shape: [n_envs, obs_size]
             states_B = states["B"]  # shape: [n_envs, obs_size]
+            eligible_actions_mask_A = np.stack(infos["valid_actions_mask_A"])
+            # shape [n_envs, n_actions]
+            eligible_actions_mask_B = np.stack(infos["valid_actions_mask_B"])
+
             actions_A, action_log_probs_A, state_value_preds_A, entropy_A = (
-                agent.select_action(states_A)
+                agent.select_action(states_A, eligible_actions_mask_A)
             )
             actions_B, action_log_probs_B, state_value_preds_B, entropy_B = (
-                agent.select_action(states_B)
+                agent.select_action(states_B, eligible_actions_mask_B)
             )
 
             # perform the action A_{t} in the environment to get S_{t+1} and R_{t+1}
@@ -335,27 +356,41 @@ def train(n_updates):
             torch.save(agent.state_dict(), model_path.__str__())
 
         # log the losses and entropy
-        critic_losses_A.append(critic_loss_A.detach().cpu().numpy())
-        critic_losses_B.append(critic_loss_B.detach().cpu().numpy())
-        actor_losses_A.append(actor_loss_A.detach().cpu().numpy())
-        actor_losses_B.append(actor_loss_B.detach().cpu().numpy())
-        entropies_A.append(entropy_A.detach().mean().cpu().numpy())
-        entropies_B.append(entropy_B.detach().mean().cpu().numpy())
-        writer.add_scalar("critic_loss_A", np.mean(critic_losses_A), update_i)
-        writer.add_scalar("critic_loss_B", np.mean(critic_losses_B), update_i)
-        writer.add_scalar("actor_loss_A", np.mean(actor_losses_A), update_i)
-        writer.add_scalar("actor_loss_B", np.mean(actor_losses_B), update_i)
-        writer.add_scalar("entropy_A", np.mean(entropies_A), update_i)
-        writer.add_scalar("entropy_B", np.mean(entropies_B), update_i)
-        writer.add_scalar("reward_A mean per update", ep_rewards_A.mean(), update_i)
-        writer.add_scalar("reward_B mean per update", ep_rewards_B.mean(), update_i)
+        critic_losses_A.append(critic_loss_A.item())
+        critic_losses_B.append(critic_loss_B.item())
+        actor_losses_A.append(actor_loss_A.item())
+        actor_losses_B.append(actor_loss_B.item())
+        entropies_A.append(entropy_A.mean().item())
+        entropies_B.append(entropy_B.mean().item())
+        rewards_A_deque.append(ep_rewards_A.mean().item())
+        rewards_B_deque.append(ep_rewards_B.mean().item())
+
+        reward_A = float(np.mean(rewards_A_deque).item())
+        reward_B = float(np.mean(rewards_B_deque).item())
+        actor_loss_A = float(np.mean(actor_losses_A).item())
+        actor_loss_B = float(np.mean(actor_losses_B).item())
+        critic_loss_A = float(np.mean(critic_losses_A).item())
+        critic_loss_B = float(np.mean(critic_losses_B).item())
+        entropy_A = float(np.mean(entropies_A).item())
+        entropy_B = float(np.mean(entropies_B).item())
+        # print(
+        #     f"{reward_A=}, {reward_B=}, {actor_loss_A=}, {actor_loss_B=}, {critic_loss_A=}, {critic_loss_B=}, {entropy_A=}, {entropy_B=}"
+        # )
+        writer.add_scalar("actor_loss_A", actor_loss_A, update_i)
+        writer.add_scalar("actor_loss_B", actor_loss_B, update_i)
+        writer.add_scalar("critic_loss_A", critic_loss_A, update_i)
+        writer.add_scalar("critic_loss_B", critic_loss_B, update_i)
+        writer.add_scalar("entropy_A", entropy_A, update_i)
+        writer.add_scalar("entropy_B", entropy_A, update_i)
+        writer.add_scalar("reward_A", reward_A, update_i)
+        writer.add_scalar("reward_B", reward_B, update_i)
 
 
 def demo(n_episodes):
     import pygame
     import sys
 
-    env = make_env(render_mode="human")
+    env = BedWarGame(render_mode="human")
     model = A2C(
         n_features=obs_size,
         n_actions=n_action,
@@ -370,17 +405,32 @@ def demo(n_episodes):
         print("Loaded model from", model_path.__str__())
     model.eval()
 
+    skip_frames = 4
     for i in range(1, 1 + n_episodes):
-        state, info = env.reset()
+        state, infos = env.reset()
         while True:
+            if env.get_ticks() % skip_frames == 0:
+                state_A = state["A"]
+                state_B = state["B"]
+                eligible_actions_mask_A = infos["valid_actions_mask_A"]
+                eligible_actions_mask_B = infos["valid_actions_mask_B"]
+                action_A, _, _, _ = model.select_action(
+                    state_A, eligible_actions_mask_A
+                )
+                action_B, _, _, _ = model.select_action(
+                    state_B, eligible_actions_mask_B
+                )
+                state, rewards, terminated, truncated, infos = env.step(
+                    (action_A.cpu().numpy(), action_B.cpu().numpy())
+                )
+                # print(f"reward_A :{rewards[0]}")
+                # print(f"reward_B :{rewards[1]}")
+            else:
+                state, _, terminated, truncated, _ = env.step(
+                    (ActionId.NONE, ActionId.NONE)
+                )
             env.render()
-            state_A = state["A"]
-            state_B = state["B"]
-            action_A, _, _, _ = model.select_action(state_A)
-            action_B, _, _, _ = model.select_action(state_B)
-            state, _, terminated, truncated, _ = env.step(
-                (action_A.cpu().numpy(), action_B.cpu().numpy())
-            )
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
@@ -391,5 +441,15 @@ def demo(n_episodes):
 
 
 if __name__ == "__main__":
-    train(n_updates=n_updates)
+
+    train_model = False
+    for arg in sys.argv:
+        if arg == "--train":
+            train_model = True
+
     # demo(n_episodes=n_demo)
+    train(n_updates=n_updates)
+    # if train_model:
+    #     train(n_updates=n_updates)
+    # else:
+    #     demo(n_episodes=n_demo)

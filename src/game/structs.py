@@ -188,16 +188,36 @@ class PlayerObservation:
 
     def to_list(self) -> np.ndarray:
         """total len: 107"""
+        f_block_height = 0
+        b_block_height = 0
+        l_block_height = 0
+        r_block_height = 0
+        c_block_height = 0
+        if not self.pos.is_invalid():
+            if self.pos.r > 0:
+                f_block_height = self.height_map[self.pos.r - 1, self.pos.c]
+            if self.pos.r < 7:
+                b_block_height = self.height_map[self.pos.r + 1, self.pos.c]
+            if self.pos.c > 0:
+                l_block_height = self.height_map[self.pos.r, self.pos.c - 1]
+            if self.pos.c < 7:
+                r_block_height = self.height_map[self.pos.r, self.pos.c + 1]
+            c_block_height = self.height_map[self.pos.r, self.pos.c]
+
         return np.array(
             [
-                *self.height_map.flatten(),  # 64
+                f_block_height,  # 1
+                b_block_height,  # 1
+                l_block_height,  # 1
+                r_block_height,  # 1
+                c_block_height,  # 1
                 *PlayerObservation.veins_to_list(self.diamond_pos, 4),  # 8
                 *PlayerObservation.veins_to_list(self.gold_pos, 4),  # 8
                 *PlayerObservation.veins_to_list(self.iron_pos, 4),  # 8
-                *self.bed_pos.tolist(),  # 2
-                *self.op_bed_pos.tolist(),  # 2
                 *self.pos.tolist(),  # 2
                 *self.op_pos.tolist(),  # 2
+                *self.bed_pos.tolist(),  # 2
+                *self.op_bed_pos.tolist(),  # 2
                 int(self.op_alive),  # 1
                 int(self.bed_destroyed),  # 1
                 int(self.op_bed_destroyed),  # 1

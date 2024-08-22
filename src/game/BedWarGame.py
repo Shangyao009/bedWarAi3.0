@@ -1,81 +1,17 @@
 import gymnasium as gym
 from gymnasium import spaces
-from typing import Optional
 import pygame
 import numpy as np
-import sys
 
 from game.TickTimer import TickTimer
 from game.Vein import Vein, Bed
 from game.Player import Player
-from game.structs import Pos, Mine, PlayerId, RewardCollector, Ticks
-from game.structs import Direction, ActionId, PlayerObservation
-from game.globalConst import Restriction, Reward
+from game.structs import Pos, PlayerId, RewardCollector, Ticks, TradeId
+from game.structs import ActionId, PlayerObservation
+from game.globalConst import Restriction, Reward, TRADE_COST
 import game.Settings as Settings
 from game.board import MapBoard, DetailBoard
-
-
-def create_veins_randomly(
-    generator: np.random.Generator, tickTimer: TickTimer
-) -> tuple[list[Vein], list[Vein], list[Vein]]:
-    created_pos = []
-    diamondVeins = []
-    goldVeins = []
-    ironVeins = []
-
-    def create_pos():
-        r: int = generator.integers(0, 8, endpoint=False)
-        c: int = generator.integers(0, 8, endpoint=False)
-        p = Pos(r, c)
-        if (r + c) == 0 or (r + c) == 14:
-            return create_pos()
-        for pos in created_pos:
-            if pos == p:
-                return create_pos()
-        return p
-
-    def get_symmetric_pos(pos: Pos):
-        r = pos.r
-        c = pos.c
-        if (r + c) == 7:
-            return Pos(c, r)
-        _r = 7 - r
-        _c = c
-        _r1 = _c
-        _c1 = _r
-        r1 = 7 - _r1
-        c1 = _c1
-        return Pos(r1, c1)
-
-    def create_symmetric_veins(type, num):
-        """create num set of veins with symmetric positions"""
-        for i in range(num):
-            pos = create_pos()
-            pos2 = get_symmetric_pos(pos)
-            created_pos.append(pos)
-            created_pos.append(pos2)
-            match (type):
-                case Mine.diamond:
-                    vein1 = Vein(Mine.diamond, pos, tickTimer)
-                    vein2 = Vein(Mine.diamond, pos2, tickTimer)
-                    diamondVeins.append(vein1)
-                    diamondVeins.append(vein2)
-                case Mine.gold:
-                    vein1 = Vein(Mine.gold, pos, tickTimer)
-                    vein2 = Vein(Mine.gold, pos2, tickTimer)
-                    goldVeins.append(vein1)
-                    goldVeins.append(vein2)
-                case Mine.iron:
-                    vein1 = Vein(Mine.iron, pos, tickTimer)
-                    vein2 = Vein(Mine.iron, pos2, tickTimer)
-                    ironVeins.append(vein1)
-                    ironVeins.append(vein2)
-
-    create_symmetric_veins(Mine.diamond, generator.choice([1, 2], p=[0.8, 0.2]))
-    create_symmetric_veins(Mine.gold, generator.choice([1, 2], p=(0.8, 0.2)))
-    create_symmetric_veins(Mine.iron, generator.choice([1, 2], p=(0.9, 0.1)))
-
-    return (diamondVeins, goldVeins, ironVeins)
+from game.utils import create_veins_randomly, get_valid_actions_mask
 
 
 class BedWarGame(gym.Env):
@@ -93,9 +29,9 @@ class BedWarGame(gym.Env):
         super(BedWarGame, self).__init__()
         self._player_obs_space = spaces.MultiDiscrete(
             [
-                *[Restriction.MAX_BLOCK_HEIGHT + 1 for _ in range(64)],
-                *[9 for _ in range(24)],
-                *[8 for _ in range(8)],
+                *[Restriction.MAX_BLOCK_HEIGHT + 1 for _ in range(5)],
+                *[9 for _ in range(28)],
+                *[8 for _ in range(4)],
                 *[2 for _ in range(3)],
                 *[Restriction.MAX_HP + 1 for _ in range(2)],
                 Restriction.MAX_HASTE + 1,
@@ -157,13 +93,13 @@ class BedWarGame(gym.Env):
                 collectVein(self.player_B, vein, B_collect)
         return (A_collect[0], B_collect[0])
 
-    def _get_observation(self):
+    def _get_observation(
+        self, obs_A: PlayerObservation, obs_B: PlayerObservation
+    ) -> dict:
         """return observation for both players"""
-        obs_A = self._get_player_obs(PlayerId.Player_A)
-        obs_B = self._get_player_obs(PlayerId.Player_B)
-        return {"A": obs_A, "B": obs_B}
+        return {"A": obs_A.to_list(), "B": obs_B.to_list()}
 
-    def _get_player_obs(self, player_id: PlayerId) -> np.ndarray:
+    def _get_player_obs(self, player_id: PlayerId) -> PlayerObservation:
         """return observation for one player"""
         player = self.player_A if player_id == PlayerId.Player_A else self.player_B
         op = self.player_B if player_id == PlayerId.Player_A else self.player_A
@@ -187,10 +123,15 @@ class BedWarGame(gym.Env):
             emerald=player.emerald,
             in_cd=player.in_cd,
             ticks=self.ticks._val,
-        ).to_list()
+        )
 
-    def _get_info(self):
-        return {}
+    def _get_info(self, obs_A: PlayerObservation, obs_B: PlayerObservation):
+        valid_actions_mask_A = get_valid_actions_mask(obs_A)
+        valid_actions_mask_B = get_valid_actions_mask(obs_B)
+        return {
+            "valid_actions_mask_A": valid_actions_mask_A,
+            "valid_actions_mask_B": valid_actions_mask_B,
+        }
 
     def _calc_close_to_vein_weight(self, pos: Pos):
         total_weight = 0
@@ -212,13 +153,15 @@ class BedWarGame(gym.Env):
         terminated = False
         truncated = False
 
+        obs_A = self._get_player_obs(PlayerId.Player_A)
+        obs_B = self._get_player_obs(PlayerId.Player_B)
         if self.game_over:
             return (
-                self._get_observation(),
+                self._get_observation(obs_A, obs_B),
                 [0, 0],
                 terminated,
                 truncated,
-                self._get_info(),
+                self._get_info(obs_A, obs_B),
             )
 
         self.reward_collector_A.clear_rewards()
@@ -280,7 +223,6 @@ class BedWarGame(gym.Env):
         if not action[0] == ActionId.NONE:
             if self.player_A.is_alive():
                 _reward = self._get_close_to_veins_reward(self.player_A.pos)
-                print(_reward)
                 self.player_A.reward_collector.add_reward(
                     _reward,
                     "close to vein reward",
@@ -296,7 +238,6 @@ class BedWarGame(gym.Env):
         if not action[1] == ActionId.NONE:
             if self.player_B.is_alive():
                 _reward = self._get_close_to_veins_reward(self.player_B.pos)
-                print(_reward)
                 self.player_B.reward_collector.add_reward(
                     _reward,
                     "close to vein reward",
@@ -315,12 +256,17 @@ class BedWarGame(gym.Env):
         )
 
         if self.ticks._val >= (Restriction.MAX_TRAINING_TIME * self.fps):
-            truncated = True
+            if Restriction.IS_DONE_IF_TIME_EXCEED:
+                terminated = True
+            else:
+                truncated = True
             # print("max training time exceeded")
             self.game_over = True
 
-        observation = self._get_observation()
-        info = self._get_info()
+        obs_A = self._get_player_obs(PlayerId.Player_A)
+        obs_B = self._get_player_obs(PlayerId.Player_B)
+        observation = self._get_observation(obs_A, obs_B)
+        info = self._get_info(obs_A, obs_B)
 
         return observation, reward, terminated, truncated, info
 
@@ -381,7 +327,9 @@ class BedWarGame(gym.Env):
         self.close_to_veins_reward_map = (_reward - _min) / (_max - _min)
 
         self.game_over = False
-        return (self._get_observation(), self._get_info())
+        obs_A = self._get_player_obs(PlayerId.Player_A)
+        obs_B = self._get_player_obs(PlayerId.Player_B)
+        return (self._get_observation(obs_A, obs_B), self._get_info(obs_A, obs_B))
 
     def _start_death_match(self):
         def deduct_hp():
@@ -408,6 +356,9 @@ class BedWarGame(gym.Env):
             return self._render_frame()
         elif self.render_mode == "human":
             self._render_frame()
+
+    def get_ticks(self):
+        return self.ticks._val
 
     def _render_frame(self):
         if self._map_board is None and (
@@ -470,73 +421,3 @@ class BedWarGame(gym.Env):
         new_obs[104] = new_obs[104] / Restriction.MAX_EMERALD
         new_obs[106] = new_obs[106] / (Restriction.MAX_TRAINING_TIME * 2)
         return new_obs
-
-
-def parse_key(
-    key, heading_A: Direction, heading_B: Direction
-) -> tuple[Direction, Direction, ActionId, ActionId]:
-    action_A: ActionId = ActionId.NONE
-    action_B: ActionId = ActionId.NONE
-    match key:
-        case pygame.K_UP:
-            heading_B = Direction.FORWARD
-        case pygame.K_DOWN:
-            heading_B = Direction.BACK
-        case pygame.K_LEFT:
-            heading_B = Direction.LEFT
-        case pygame.K_RIGHT:
-            heading_B = Direction.RIGHT
-        case pygame.K_w:
-            heading_A = Direction.FORWARD
-        case pygame.K_s:
-            heading_A = Direction.BACK
-        case pygame.K_a:
-            heading_A = Direction.LEFT
-        case pygame.K_d:
-            heading_A = Direction.RIGHT
-
-        case pygame.K_h:
-            if heading_A != Direction.CENTER:
-                action_A = ActionId.MOVE_F + heading_A
-        case pygame.K_j:
-            if heading_A != Direction.CENTER:
-                action_A = ActionId.PLACE_F + heading_A
-        case pygame.K_k:
-            if heading_A != Direction.CENTER:
-                action_A = ActionId.DIVE_F + heading_A
-        case pygame.K_l:
-            action_A = ActionId.ATTACK
-        case pygame.K_1:
-            action_A = ActionId.TRADE_WOOL
-        case pygame.K_2:
-            action_A = ActionId.HP_POTION
-        case pygame.K_3:
-            action_A = ActionId.HP_BOUND_UP
-        case pygame.K_4:
-            action_A = ActionId.HASTE_UP
-        case pygame.K_5:
-            action_A = ActionId.ATK_UP
-
-        case pygame.K_KP_0:
-            if heading_B != Direction.CENTER:
-                action_B = ActionId.MOVE_F + heading_B
-        case pygame.K_KP_1:
-            if heading_B != Direction.CENTER:
-                action_B = ActionId.PLACE_F + heading_B
-        case pygame.K_KP_2:
-            if heading_B != Direction.CENTER:
-                action_B = ActionId.DIVE_F + heading_B
-        case pygame.K_KP_3:
-            action_B = ActionId.ATTACK
-        case pygame.K_KP_MINUS:
-            action_B = ActionId.TRADE_WOOL
-        case pygame.K_KP_PLUS:
-            action_B = ActionId.HP_POTION
-        case pygame.K_KP_7:
-            action_B = ActionId.HP_BOUND_UP
-        case pygame.K_KP_8:
-            action_B = ActionId.HASTE_UP
-        case pygame.K_KP_9:
-            action_B = ActionId.ATK_UP
-
-    return (heading_A, heading_B, action_A, action_B)
