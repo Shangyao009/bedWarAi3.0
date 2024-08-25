@@ -203,7 +203,7 @@ def get_valid_actions_mask(obs: PlayerObservation):
         obs.half_second < Settings.DEAD_MATCH_COUNTDOWN * 2
         or Settings.DEAD_MATCH_TRADE_VALID
     ):
-        if obs.wool >= TRADE_COST[TradeId.wool] and obs.wool < Restriction.MAX_WOOL:
+        if obs.emerald >= TRADE_COST[TradeId.wool] and obs.wool < Restriction.MAX_WOOL:
             valid_actions_mask[ActionId.TRADE_WOOL] = True
         if obs.emerald >= TRADE_COST[TradeId.life_potion] and obs.hp < obs.hp_bound:
             valid_actions_mask[ActionId.HP_POTION] = True

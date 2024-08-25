@@ -8,7 +8,7 @@ class Restriction:
     MAX_ATK = 25
     MAX_HASTE = 32
     MAX_BLOCK_HEIGHT = 15
-    MAX_TRAINING_TIME = 5 * 60  # 15 minutes
+    MAX_TRAINING_TIME = 15 * 60  # 15 minutes
     """max training time in seconds to give truncated signal to the agent"""
     IS_DONE_IF_TIME_EXCEED = True
     """if True, the game is done if training time exceeds MAX_TRAINING_TIME"""
