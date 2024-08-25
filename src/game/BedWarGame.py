@@ -7,7 +7,7 @@ from game.TickTimer import TickTimer
 from game.Vein import Vein, Bed
 from game.Player import Player
 from game.structs import Pos, PlayerId, RewardCollector, Ticks, TradeId
-from game.structs import ActionId, PlayerObservation
+from game.structs import ActionId, PlayerObservation, Mine
 from game.globalConst import Restriction, Reward, TRADE_COST
 import game.Settings as Settings
 from game.board import MapBoard, DetailBoard
@@ -227,6 +227,11 @@ class BedWarGame(gym.Env):
                     _reward,
                     "close to vein reward",
                 )
+                if self.player_A.wool > 0:
+                    self.player_A.reward_collector.add_reward(
+                        Reward.HOLD_WOOL, "holding wool"
+                    )
+
             self.player_A.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
@@ -242,6 +247,10 @@ class BedWarGame(gym.Env):
                     _reward,
                     "close to vein reward",
                 )
+                if self.player_B.wool > 0:
+                    self.player_B.reward_collector.add_reward(
+                        Reward.HOLD_WOOL, "holding wool"
+                    )
             self.player_B.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
@@ -283,9 +292,24 @@ class BedWarGame(gym.Env):
         self.height_map[self.bed_A.pos.r, self.bed_A.pos.c] = 1
         self.height_map[self.bed_B.pos.r, self.bed_B.pos.c] = 1
 
-        self.diamond_veins, self.gold_veins, self.iron_veins = create_veins_randomly(
-            self.np_random, self.tick_timer
-        )
+        self.diamond_veins = [
+            Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
+            Vein(Mine.diamond, Pos(3, 4), self.tick_timer),
+        ]
+        self.gold_veins = [
+            Vein(Mine.gold, Pos(1, 5), self.tick_timer),
+            Vein(Mine.gold, Pos(6, 2), self.tick_timer),
+            Vein(Mine.gold, Pos(5, 7), self.tick_timer),
+            Vein(Mine.gold, Pos(2, 0), self.tick_timer),
+        ]
+        self.iron_veins = [
+            Vein(Mine.iron, Pos(5, 5), self.tick_timer),
+            Vein(Mine.iron, Pos(2, 2), self.tick_timer),
+        ]
+
+        # self.diamond_veins, self.gold_veins, self.iron_veins = create_veins_randomly(
+        #     self.np_random, self.tick_timer
+        # )
 
         self.veins: list[Vein] = (
             self.diamond_veins

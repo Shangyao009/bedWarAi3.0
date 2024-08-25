@@ -70,7 +70,7 @@ class Pos:
         return f"({self.c}, {self.r})"
 
     def is_invalid(self):
-        self.r < 0 or self.r >= 8 or self.c < 0 or self.c >= 8
+        return self.r < 0 or self.r >= 8 or self.c < 0 or self.c >= 8
 
     # row first then col
     def tolist(self):

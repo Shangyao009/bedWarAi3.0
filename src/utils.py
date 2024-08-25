@@ -1,10 +1,5 @@
 from gymnasium.envs.registration import register
-import gymnasium as gym
 from game import BedWarGame
-import pygame
-import sys
-import random
-
 
 def register_game():
     register(

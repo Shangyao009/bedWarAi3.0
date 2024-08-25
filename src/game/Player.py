@@ -1,7 +1,7 @@
 from game.Vein import Bed, Pos
 from game.TickTimer import TickTimer
 from game.structs import Direction, RewardCollector, TradeId, ActionId
-from game.Settings import *
+import game.Settings as Settings
 from game.globalConst import *
 
 
@@ -22,7 +22,7 @@ class Player:
         self.haste = 0
         self.atk = 1
 
-        self.wool = 64  # 8
+        self.wool = 8
         self.emerald = 0
 
         self.bed = bed
@@ -41,7 +41,7 @@ class Player:
         return self.in_cd
 
     def calc_cd(self, haste):
-        return max(INIT_CD - haste * HASTE_DEDUCT_CD, MIN_CD)
+        return max(Settings.INIT_CD - haste * Settings.HASTE_DEDUCT_CD, Settings.MIN_CD)
 
     def is_zero_hp(self):
         return self.hp <= 0
@@ -55,7 +55,9 @@ class Player:
         self.tick_timer.add_timer(interval, callback, forever=False)
 
     def set_revive_timer(self):
-        self.tick_timer.add_timer(seconds=REVIVE_CYCLE, task=self.revive, forever=False)
+        self.tick_timer.add_timer(
+            seconds=Settings.REVIVE_CYCLE, task=self.revive, forever=False
+        )
 
     def is_alive(self):
         # hp == 0 is not dead, but will be dead in next step
@@ -124,12 +126,12 @@ class Player:
                 self.hp = 0
             self.is_moving = False
 
-        if MOVE_INTERVAL == 0:
+        if Settings.MOVE_INTERVAL == 0:
             callback()
         else:
             self.is_moving = True
             self.tick_timer.add_timer(
-                seconds=MOVE_INTERVAL, task=callback, forever=False
+                seconds=Settings.MOVE_INTERVAL, task=callback, forever=False
             )
 
     def dive(self, direction: Direction, op: "Player"):
@@ -274,6 +276,7 @@ class Player:
                     invalid_action = True
                 else:
                     self.hp_bound += 3
+                    self.hp += 3
                     self.emerald -= TRADE_COST[trade_id]
                     self.reward_collector.add_reward(
                         Reward.TRADE_HP_LIMIT_UP, "trade hp limit up"

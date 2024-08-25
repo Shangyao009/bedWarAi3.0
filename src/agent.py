@@ -217,14 +217,15 @@ class A2C(nn.Module):
 
 model_dir = Path("./models")
 model_path = model_dir.joinpath("A2C.pt")
-n_envs = 12
+log_dir = Path("./logs/A2C")
+n_envs = 16
 skip_frames = 8
 critic_lr = 7e-5
 actor_lr = 7e-5
-gamma = 0.999
+gamma = 0.9999
 lam = 0.95  # hyperparameter for GAE
 ent_coef = 0.01  # coefficient for the entropy bonus (to encourage exploration)
-n_updates = 10000
+n_updates = 40000
 n_demo = 5
 n_steps_per_update = 128  # batch size
 save_every_n_updates = 50
@@ -234,7 +235,7 @@ obs_size = 48
 n_action = 19
 
 
-def  make_env(render_mode=None):
+def make_env(render_mode=None):
     """Make a gym environment for AsyncVectorEnv"""
     register_game()
     env = gym.make("BedWarGame-v0", render_mode=render_mode)
@@ -245,7 +246,7 @@ def  make_env(render_mode=None):
 
 def train(n_updates):
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    writer = SummaryWriter(f"./logs/A2C/{time_str}_lr_{actor_lr}_{critic_lr}")
+    writer = SummaryWriter(f"{log_dir.__str__()}/{time_str}_lr_{actor_lr}_{critic_lr}")
     _make_env = []
     for i in range(n_envs):
         _make_env.append(make_env)
@@ -381,7 +382,7 @@ def train(n_updates):
         writer.add_scalar("critic_loss_A", critic_loss_A, update_i)
         writer.add_scalar("critic_loss_B", critic_loss_B, update_i)
         writer.add_scalar("entropy_A", entropy_A, update_i)
-        writer.add_scalar("entropy_B", entropy_A, update_i)
+        writer.add_scalar("entropy_B", entropy_B, update_i)
         writer.add_scalar("reward_A", reward_A, update_i)
         writer.add_scalar("reward_B", reward_B, update_i)
 

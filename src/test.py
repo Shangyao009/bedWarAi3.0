@@ -64,4 +64,4 @@ def play(render_mode=None, seed=None, n_episodes=1):
 
 if __name__ == "__main__":
     register_game()
-    play(render_mode=None, seed=None, n_episodes=5)
+    play(render_mode="human", seed=None, n_episodes=5)
