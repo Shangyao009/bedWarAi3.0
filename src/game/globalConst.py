@@ -24,30 +24,30 @@ TRADE_COST = {
 
 
 class Reward:
-    TIE = 0
-    WIN = 0
-    LOSE = 0
+    TIE = 1000
+    WIN = 5000
+    LOSE = -5000
 
     INVALID_ACTION = -0.2
-    STEP_PENALTY = -0.002
+    STEP_PENALTY = -0.004
     PER_EMERALD_GAIN = 0.8
     CLOSE_TO_VEINS = 0.01
-    HOLD_WOOL = 0.002
+    HOLD_WOOL = 0.003
 
     PER_DAMAGE_DEAL = 1
     KILL_OP = 20
-    CONSTRUCT_BED = 0  # 0.15
+    CONSTRUCT_BED = 0.3
     ATTACK_SELF_BED = -4
     ATTACK_BED = 1
     DESTROY_BED = 30
 
-    PER_DAMAGE_TAKE = 0  # -0.4
+    PER_DAMAGE_TAKE = -0.4
     DEATH = -10
     BED_DESTROYED = -20
-    BED_ATTACKED = 0  # -0.4
+    BED_ATTACKED = -0.4
 
     TRADE_WOOL = 0.5
-    TRADE_LIFE_POTION = 0.5
+    TRADE_LIFE_POTION = 1
     TRADE_HP_LIMIT_UP = 8
     TRADE_ATK_UP = 16
     TRADE_HASTE_UP = 8

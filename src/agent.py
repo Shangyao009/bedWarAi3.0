@@ -63,7 +63,6 @@ class A2C(nn.Module):
         super().__init__()
         self.device = device
         self.n_envs = n_envs
-
         critic_layers = [
             nn.Linear(n_features, 512),
             nn.ReLU(),
@@ -140,6 +139,7 @@ class A2C(nn.Module):
         )  # implicitly uses softmax
 
         actions_A = action_pd.sample()
+
         action_log_probs = action_pd.log_prob(actions_A)
         entropy = action_pd.entropy()
         return (actions_A, action_log_probs, state_values, entropy)
@@ -228,8 +228,7 @@ ent_coef = 0.01  # coefficient for the entropy bonus (to encourage exploration)
 n_updates = 500000
 n_demo = 5
 n_steps_per_update = 128  # batch size
-save_every_n_updates = 50
-
+save_every_n_updates = 200  # not recommended less than 100
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 obs_size = 48
 n_action = 19
@@ -354,7 +353,10 @@ def train(n_updates):
         agent.update_parameters(critic_loss, actor_loss)
 
         if update_i % save_every_n_updates == 0:
-            torch.save(agent.state_dict(), model_path.__str__())
+            try:
+                torch.save(agent.state_dict(), model_path.__str__())
+            except:
+                print("Failed to save model")
 
         # log the losses and entropy
         critic_losses_A.append(critic_loss_A.item())
