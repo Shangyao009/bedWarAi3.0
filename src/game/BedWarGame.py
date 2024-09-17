@@ -220,6 +220,11 @@ class BedWarGame(gym.Env):
             self.player_B.reward_collector.add_reward(Reward.LOSE, "lose")
             self.game_over = True
 
+        obs_A = self._get_player_obs(PlayerId.Player_A)
+        obs_B = self._get_player_obs(PlayerId.Player_B)
+        observation = self._get_observation(obs_A, obs_B)
+        info = self._get_info(obs_A, obs_B)
+
         if not action[0] == ActionId.NONE:
             if self.player_A.is_alive():
                 _reward = self._get_close_to_veins_reward(self.player_A.pos)
@@ -235,10 +240,27 @@ class BedWarGame(gym.Env):
             self.player_A.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
-            # print("reward A:")
-            # for reward_property in self.player_A.reward_collector.rewards:
-            #     print(reward_property)
-            # print()
+
+            if (
+                self.player_A.wool == 0
+                and not self.player_A.pos == self.player_A.bed.pos
+                and not self.game_over
+            ):
+                for _action in (
+                    ActionId.MOVE_F,
+                    ActionId.MOVE_B,
+                    ActionId.MOVE_L,
+                    ActionId.MOVE_R,
+                ):
+                    if _action not in info["valid_actions_mask_A"]:
+                        continue
+                    else:
+                        break
+                else:
+                    self.player_A.reward_collector.add_reward(Reward.LOSE, "lose")
+                    self.player_B.reward_collector.add_reward(Reward.WIN, "win")
+                    terminated = True
+                    self.game_over = True
 
         if not action[1] == ActionId.NONE:
             if self.player_B.is_alive():
@@ -254,28 +276,48 @@ class BedWarGame(gym.Env):
             self.player_B.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
-            # print("reward B:")
-            # for reward_property in self.player_B.reward_collector.rewards:
-            #     print(reward_property)
-            # print()
 
-        reward = (
-            self.reward_collector_A.get_total_reward(),
-            self.reward_collector_B.get_total_reward(),
-        )
+            if (
+                self.player_B.wool == 0
+                and not self.player_B.pos == self.player_B.bed.pos
+                and not self.game_over
+            ):
+                for _action in (
+                    ActionId.MOVE_F,
+                    ActionId.MOVE_B,
+                    ActionId.MOVE_L,
+                    ActionId.MOVE_R,
+                ):
+                    if _action not in info["valid_actions_mask_B"]:
+                        continue
+                    else:
+                        break
+                else:
+                    self.player_A.reward_collector.add_reward(Reward.WIN, "win")
+                    self.player_B.reward_collector.add_reward(Reward.LOSE, "lose")
+                    terminated = True
+                    self.game_over = True
 
-        if self.ticks._val >= (Restriction.MAX_TRAINING_TIME * self.fps):
+        if not self.game_over and self.ticks._val >= (
+            Restriction.MAX_TRAINING_TIME * self.fps
+        ):
             if Restriction.IS_DONE_IF_TIME_EXCEED:
                 terminated = True
+                self.player_A.reward_collector.add_reward(
+                    Reward.TIE, "tie as max training time exceeded"
+                )
+                self.player_B.reward_collector.add_reward(
+                    Reward.TIE, "tie as max training time exceeded"
+                )
             else:
                 truncated = True
             # print("max training time exceeded")
             self.game_over = True
 
-        obs_A = self._get_player_obs(PlayerId.Player_A)
-        obs_B = self._get_player_obs(PlayerId.Player_B)
-        observation = self._get_observation(obs_A, obs_B)
-        info = self._get_info(obs_A, obs_B)
+        reward = (
+            self.reward_collector_A.get_total_reward(),
+            self.reward_collector_B.get_total_reward(),
+        )
 
         return observation, reward, terminated, truncated, info
 
@@ -292,24 +334,24 @@ class BedWarGame(gym.Env):
         self.height_map[self.bed_A.pos.r, self.bed_A.pos.c] = 1
         self.height_map[self.bed_B.pos.r, self.bed_B.pos.c] = 1
 
-        self.diamond_veins = [
-            Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
-            Vein(Mine.diamond, Pos(3, 4), self.tick_timer),
-        ]
-        self.gold_veins = [
-            Vein(Mine.gold, Pos(1, 5), self.tick_timer),
-            Vein(Mine.gold, Pos(6, 2), self.tick_timer),
-            Vein(Mine.gold, Pos(5, 7), self.tick_timer),
-            Vein(Mine.gold, Pos(2, 0), self.tick_timer),
-        ]
-        self.iron_veins = [
-            Vein(Mine.iron, Pos(5, 5), self.tick_timer),
-            Vein(Mine.iron, Pos(2, 2), self.tick_timer),
-        ]
+        # self.diamond_veins = [
+        #     Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
+        #     Vein(Mine.diamond, Pos(3, 4), self.tick_timer),
+        # ]
+        # self.gold_veins = [
+        #     Vein(Mine.gold, Pos(1, 5), self.tick_timer),
+        #     Vein(Mine.gold, Pos(6, 2), self.tick_timer),
+        #     Vein(Mine.gold, Pos(5, 7), self.tick_timer),
+        #     Vein(Mine.gold, Pos(2, 0), self.tick_timer),
+        # ]
+        # self.iron_veins = [
+        #     Vein(Mine.iron, Pos(5, 5), self.tick_timer),
+        #     Vein(Mine.iron, Pos(2, 2), self.tick_timer),
+        # ]
 
-        # self.diamond_veins, self.gold_veins, self.iron_veins = create_veins_randomly(
-        #     self.np_random, self.tick_timer
-        # )
+        self.diamond_veins, self.gold_veins, self.iron_veins = create_veins_randomly(
+            self.np_random, self.tick_timer
+        )
 
         self.veins: list[Vein] = (
             self.diamond_veins
