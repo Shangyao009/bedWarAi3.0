@@ -180,7 +180,7 @@ class A2C(nn.Module):
 
         # compute the advantages using GAE
         gae = 0.0
-        for t in reversed(range(T - 1)):
+        for t in reversed(range(T - 1)):  # start from T-2 -> 0
             td_error = (
                 rewards[t] + gamma * masks[t] * value_preds[t + 1] - value_preds[t]
             )
@@ -218,16 +218,16 @@ class A2C(nn.Module):
 model_dir = Path("./models")
 model_path = model_dir.joinpath("A2C.pt")
 log_dir = Path("./logs/A2C")
-n_envs = 16
+n_envs = 20
 skip_frames = 8
-critic_lr = 7e-5
-actor_lr = 7e-5
-gamma = 0.9999
-lam = 0.95  # hyperparameter for GAE
-ent_coef = 0.01  # coefficient for the entropy bonus (to encourage exploration)
-n_updates = 500000
+critic_lr = 1e-4
+actor_lr = 1e-4
+gamma = 0.999
+lam = 0.99  # hyperparameter for GAE
+ent_coef = 0.5  # coefficient for the entropy bonus (to encourage exploration)
+n_updates = 20000
 n_demo = 5
-n_steps_per_update = 128  # batch size
+n_steps_per_update = 256  # batch size
 save_every_n_updates = 200  # not recommended less than 100
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 obs_size = 48
@@ -445,14 +445,12 @@ def demo(n_episodes):
 
 if __name__ == "__main__":
 
-    train_model = False
+    is_demo = False
     for arg in sys.argv:
-        if arg == "--train":
-            train_model = True
+        if arg == "--demo":
+            is_demo = True
 
-    # demo(n_episodes=n_demo)
-    train(n_updates=n_updates)
-    # if train_model:
-    #     train(n_updates=n_updates)
-    # else:
-    #     demo(n_episodes=n_demo)
+    if is_demo:
+        demo(n_episodes=n_demo)
+    else:
+        train(n_updates=n_updates)

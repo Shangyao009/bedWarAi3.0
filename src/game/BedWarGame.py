@@ -241,27 +241,6 @@ class BedWarGame(gym.Env):
                 Reward.STEP_PENALTY, "step penalty"
             )
 
-            if (
-                self.player_A.wool == 0
-                and not self.player_A.pos == self.player_A.bed.pos
-                and not self.game_over
-            ):
-                for _action in (
-                    ActionId.MOVE_F,
-                    ActionId.MOVE_B,
-                    ActionId.MOVE_L,
-                    ActionId.MOVE_R,
-                ):
-                    if _action not in info["valid_actions_mask_A"]:
-                        continue
-                    else:
-                        break
-                else:
-                    self.player_A.reward_collector.add_reward(Reward.LOSE, "lose")
-                    self.player_B.reward_collector.add_reward(Reward.WIN, "win")
-                    terminated = True
-                    self.game_over = True
-
         if not action[1] == ActionId.NONE:
             if self.player_B.is_alive():
                 _reward = self._get_close_to_veins_reward(self.player_B.pos)
@@ -276,27 +255,6 @@ class BedWarGame(gym.Env):
             self.player_B.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
-
-            if (
-                self.player_B.wool == 0
-                and not self.player_B.pos == self.player_B.bed.pos
-                and not self.game_over
-            ):
-                for _action in (
-                    ActionId.MOVE_F,
-                    ActionId.MOVE_B,
-                    ActionId.MOVE_L,
-                    ActionId.MOVE_R,
-                ):
-                    if _action not in info["valid_actions_mask_B"]:
-                        continue
-                    else:
-                        break
-                else:
-                    self.player_A.reward_collector.add_reward(Reward.WIN, "win")
-                    self.player_B.reward_collector.add_reward(Reward.LOSE, "lose")
-                    terminated = True
-                    self.game_over = True
 
         if not self.game_over and self.ticks._val >= (
             Restriction.MAX_TRAINING_TIME * self.fps
@@ -382,6 +340,7 @@ class BedWarGame(gym.Env):
             forever=False,
             priority=3,
         )
+        self.is_death_match = False
 
         # for close to vein reward calculation
         _reward = np.zeros((8, 8))
@@ -411,6 +370,7 @@ class BedWarGame(gym.Env):
         self.tick_timer.add_timer(
             Settings.DEDUCT_HP_INTERVAL, deduct_hp, forever=True, priority=3
         )
+        self.is_death_match = True
 
         if not Settings.DEAD_MATCH_TRADE_VALID:
             self.bed_A.set_is_trade_available(False)
