@@ -88,9 +88,29 @@ class BedWarGame(gym.Env):
             ):
                 continue
             if pos_A == vein.pos:
+                explore = True
+                for pos in self.A_explore_veins:
+                    if pos == vein.pos:
+                        explore = False
+                        break
+                if explore:
+                    self.A_explore_veins.append(vein.pos)
+                    self.player_A.reward_collector.add_reward(
+                        Reward.NEW_VEIN_EXPLORED * vein.type.value, "new vein explored"
+                    )
                 collectVein(self.player_A, vein, A_collect)
             if pos_B == vein.pos:
                 collectVein(self.player_B, vein, B_collect)
+                explore = True
+                for pos in self.B_explore_veins:
+                    if pos == vein.pos:
+                        explore = False
+                        break
+                if explore:
+                    self.B_explore_veins.append(vein.pos)
+                    self.player_B.reward_collector.add_reward(
+                        Reward.NEW_VEIN_EXPLORED * vein.type.value, "new vein explored"
+                    )
         return (A_collect[0], B_collect[0])
 
     def _get_observation(
@@ -291,6 +311,8 @@ class BedWarGame(gym.Env):
         self.bed_B = Bed(Pos(7, 7), self.tick_timer)
         self.height_map[self.bed_A.pos.r, self.bed_A.pos.c] = 1
         self.height_map[self.bed_B.pos.r, self.bed_B.pos.c] = 1
+        self.A_explore_veins = [self.bed_A.pos]
+        self.B_explore_veins = [self.bed_B.pos]
 
         # self.diamond_veins = [
         #     Vein(Mine.diamond, Pos(4, 3), self.tick_timer),
