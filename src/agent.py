@@ -10,7 +10,7 @@ from datetime import datetime
 from tqdm import tqdm
 from pathlib import Path
 import sys
-
+import signal
 from utils import register_game
 from game import BedWarGame, ActionId, Settings, globalConst
 
@@ -243,14 +243,22 @@ def make_env(render_mode=None):
     return env
 
 
+def save_model(model: nn.Module, path: str):
+    try:
+        torch.save(model.state_dict(), path)
+        return True
+    except:
+        print("Failed to save model")
+        return False
+
+
 def train(n_updates):
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    writer = SummaryWriter(f"{log_dir.__str__()}/{time_str}_lr_{actor_lr}_{critic_lr}")
+    writer = None  # initialize when first logs
     _make_env = []
     for i in range(n_envs):
         _make_env.append(make_env)
     envs = gym.vector.AsyncVectorEnv(_make_env)
-    # envs = gym.vector.SyncVectorEnv(_make_env)
 
     agent = A2C(
         n_features=obs_size,
@@ -269,6 +277,16 @@ def train(n_updates):
             torch.load(model_path.__str__(), weights_only=True, map_location=device)
         )
         print("Loaded model from", model_path.__str__())
+
+    def save_model_and_exit(signal_received, frame):
+        print("Saving model")
+        done = save_model(agent, model_path.__str__())
+        if done:
+            print("Model saved")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, save_model_and_exit)
+    signal.signal(signal.SIGTERM, save_model_and_exit)
 
     critic_losses_A = deque(maxlen=100)
     critic_losses_B = deque(maxlen=100)
@@ -355,10 +373,7 @@ def train(n_updates):
         agent.update_parameters(critic_loss, actor_loss)
 
         if update_i % save_every_n_updates == 0:
-            try:
-                torch.save(agent.state_dict(), model_path.__str__())
-            except:
-                print("Failed to save model")
+            save_model(agent, model_path.__str__())
 
         # log the losses and entropy
         critic_losses_A.append(critic_loss_A.item())
@@ -381,6 +396,10 @@ def train(n_updates):
         # print(
         #     f"{reward_A=}, {reward_B=}, {actor_loss_A=}, {actor_loss_B=}, {critic_loss_A=}, {critic_loss_B=}, {entropy_A=}, {entropy_B=}"
         # )
+        if writer is None:
+            writer = SummaryWriter(
+                f"{log_dir.__str__()}/{time_str}_lr_{actor_lr}_{critic_lr}"
+            )
         writer.add_scalar("actor_loss_A", actor_loss_A, update_i)
         writer.add_scalar("actor_loss_B", actor_loss_B, update_i)
         writer.add_scalar("critic_loss_A", critic_loss_A, update_i)
