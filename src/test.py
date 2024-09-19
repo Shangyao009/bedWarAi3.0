@@ -60,6 +60,7 @@ def play(render_mode=None, seed=None, n_episodes=1):
                                 print(
                                     "valid_actions_mask_A", info["valid_actions_mask_A"]
                                 )
+                                print()
                             if action_B is not ActionId.NONE:
                                 print(
                                     "valid_actions_mask_B", info["valid_actions_mask_B"]

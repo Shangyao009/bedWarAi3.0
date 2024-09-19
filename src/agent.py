@@ -218,16 +218,16 @@ class A2C(nn.Module):
 model_dir = Path("./models")
 model_path = model_dir.joinpath("A2C.pt")
 log_dir = Path("./logs/A2C")
-n_envs = 20
+n_envs = 24
 skip_frames = 8
-critic_lr = 1e-4
+critic_lr = 1e-5
 actor_lr = 1e-4
 gamma = 0.999
 lam = 0.99  # hyperparameter for GAE
-ent_coef = 0.5  # coefficient for the entropy bonus (to encourage exploration)
-n_updates = 20000
+ent_coef = 0.1  # coefficient for the entropy bonus (to encourage exploration)
+n_updates = 40000
 n_demo = 5
-n_steps_per_update = 256  # batch size
+n_steps_per_update = 128  # batch size
 save_every_n_updates = 200  # not recommended less than 100
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 obs_size = 48
@@ -265,7 +265,9 @@ def train(n_updates):
         os.makedirs(model_dir, exist_ok=True)
 
     if os.path.exists(model_path):
-        agent.load_state_dict(torch.load(model_path.__str__(), weights_only=True))
+        agent.load_state_dict(
+            torch.load(model_path.__str__(), weights_only=True, map_location=device)
+        )
         print("Loaded model from", model_path.__str__())
 
     critic_losses_A = deque(maxlen=100)
@@ -404,7 +406,9 @@ def demo(n_episodes):
     )
 
     if model_path.exists():
-        model.load_state_dict(torch.load(model_path.__str__(), weights_only=True))
+        model.load_state_dict(
+            torch.load(model_path.__str__(), weights_only=True, map_location=device)
+        )
         print("Loaded model from", model_path.__str__())
     model.eval()
 
@@ -449,7 +453,7 @@ if __name__ == "__main__":
     for arg in sys.argv:
         if arg == "--demo":
             is_demo = True
-
+    print(f"{device=}")
     if is_demo:
         demo(n_episodes=n_demo)
     else:

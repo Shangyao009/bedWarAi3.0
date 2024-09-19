@@ -29,18 +29,18 @@ class Reward:
     # LOSE = -5000
 
     TIE = 0
-    WIN = 100
-    LOSE = -100
+    WIN = 300
+    LOSE = -300
 
     INVALID_ACTION = -0.2
-    STEP_PENALTY = -0.004
+    STEP_PENALTY = -0.005
     PER_EMERALD_GAIN = 1.2
-    NEW_VEIN_EXPLORED = 3
-    CLOSE_TO_VEINS = 0.003
-    HOLD_WOOL = 0.007
+    NEW_VEIN_EXPLORED = 1.5
+    CLOSE_TO_VEINS = 0.002
+    HOLD_WOOL = 0.002
 
     PER_DAMAGE_DEAL = 1
-    KILL_OP = 20
+    KILL_OP = 30
     CONSTRUCT_BED = 0.3
     ATTACK_SELF_BED = -4
     ATTACK_BED = 1

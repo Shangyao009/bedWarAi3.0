@@ -51,6 +51,14 @@ class RewardCollector:
     def clear_rewards(self):
         self.rewards.clear()
 
+    def __str__(self) -> str:
+        text = "["
+        for item in self.rewards:
+            text += f" {item.__str__()},"
+        text.rstrip(",")
+        text += "]"
+        return text
+
 
 class Pos:
     def __init__(self, r, c) -> None:

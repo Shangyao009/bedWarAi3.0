@@ -99,8 +99,8 @@ class BedWarGame(gym.Env):
                         Reward.NEW_VEIN_EXPLORED * vein.type.value, "new vein explored"
                     )
                 collectVein(self.player_A, vein, A_collect)
+
             if pos_B == vein.pos:
-                collectVein(self.player_B, vein, B_collect)
                 explore = True
                 for pos in self.B_explore_veins:
                     if pos == vein.pos:
@@ -111,6 +111,8 @@ class BedWarGame(gym.Env):
                     self.player_B.reward_collector.add_reward(
                         Reward.NEW_VEIN_EXPLORED * vein.type.value, "new vein explored"
                     )
+                collectVein(self.player_B, vein, B_collect)
+
         return (A_collect[0], B_collect[0])
 
     def _get_observation(
@@ -260,6 +262,7 @@ class BedWarGame(gym.Env):
             self.player_A.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
+            # print(self.player_A.reward_collector)
 
         if not action[1] == ActionId.NONE:
             if self.player_B.is_alive():
@@ -275,6 +278,7 @@ class BedWarGame(gym.Env):
             self.player_B.reward_collector.add_reward(
                 Reward.STEP_PENALTY, "step penalty"
             )
+            # print(self.player_B.reward_collector)
 
         if not self.game_over and self.ticks._val >= (
             Restriction.MAX_TRAINING_TIME * self.fps
