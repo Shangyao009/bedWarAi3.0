@@ -48,6 +48,8 @@ class A2C(nn.Module):
         critic_lr: The learning rate for the critic network (should usually be larger than the actor_lr).
         actor_lr: The learning rate for the actor network.
         n_envs: The number of environments that run in parallel (on multiple CPUs) to collect experiences.
+        epsilon: The probability of selecting a random action (to encourage exploration).
+        ent_threshold: The threshold for the entropy of the action distribution, below which epsilon action selection is applied.
     """
 
     def __init__(
@@ -58,19 +60,22 @@ class A2C(nn.Module):
         critic_lr: float,
         actor_lr: float,
         n_envs: int,
+        epsilon: float,
+        ent_threshold: float,
     ) -> None:
-        """Initializes the actor and critic networks and their respective optimizers."""
         super().__init__()
         self.device = device
         self.n_envs = n_envs
+        self.epsilon = epsilon
+        self.ent_threshold = ent_threshold
         critic_layers = [
             nn.Linear(n_features, 512),
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512, 1024),  # estimate V(s)
+            nn.Linear(512, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 512),  # estimate V(s)
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, 1),
         ]
@@ -80,13 +85,11 @@ class A2C(nn.Module):
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Linear(512, 1024),  # estimate V(s)
+            nn.Linear(512, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 512),  # estimate V(s)
+            nn.Linear(1024, 512),
             nn.ReLU(),
-            nn.Linear(
-                512, n_actions
-            ),  # estimate action logits (will be fed into a softmax later)
+            nn.Linear(512, n_actions),
         ]
 
         # define actor and critic networks
@@ -116,33 +119,59 @@ class A2C(nn.Module):
     def select_action(
         self, x: np.ndarray, eligible_actions_mask: np.ndarray[np.bool_]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Returns a tuple of the chosen actions and the log-probs of those actions.
-
-        Args:
-            x: A batched vector of states.
-
-        Returns:
-            actions: A tensor with the actions, with shape [n_steps_per_update, n_envs].
-            action_log_probs: A tensor with the log-probs of the actions, with shape [n_steps_per_update, n_envs].
-            state_values: A tensor with the state values, with shape [n_steps_per_update, n_envs].
-        """
+        """Selects an action based on policy and if the entropy is below a threshold, epsilon action selection may be applied"""
         state_values, action_logits = self.forward(x)
-        # shape: [n_envs,], [n_envs, n_actions]
+
         eligible_actions_mask = (
             torch.Tensor(eligible_actions_mask).type(torch.bool).to(self.device)
         )
         action_logits[~eligible_actions_mask] = -float("inf")
 
-        action_pd = torch.distributions.Categorical(
-            logits=action_logits
-        )  # implicitly uses softmax
+        action_pd = torch.distributions.Categorical(logits=action_logits)
+        entropy = action_pd.entropy()
 
         actions_A = action_pd.sample()
 
-        action_log_probs = action_pd.log_prob(actions_A)
-        entropy = action_pd.entropy()
-        return (actions_A, action_log_probs, state_values, entropy)
+        threshold_mask = entropy < self.ent_threshold
+        random_actions = torch.multinomial(eligible_actions_mask.float(), 1).squeeze()
+        random_mask = torch.rand(actions_A.size(), device=self.device) < self.epsilon
+        mask = threshold_mask & random_mask
+        final_actions = torch.where(mask, random_actions, actions_A)
+
+        action_log_probs = action_pd.log_prob(final_actions)
+
+        return final_actions, action_log_probs, state_values, entropy
+
+    # def select_action(
+    #     self, x: np.ndarray, eligible_actions_mask: np.ndarray[np.bool_]
+    # ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    #     """
+    #     Returns a tuple of the chosen actions and the log-probs of those actions.
+
+    #     Args:
+    #         x: A batched vector of states.
+
+    #     Returns:
+    #         actions: A tensor with the actions, with shape [n_steps_per_update, n_envs].
+    #         action_log_probs: A tensor with the log-probs of the actions, with shape [n_steps_per_update, n_envs].
+    #         state_values: A tensor with the state values, with shape [n_steps_per_update, n_envs].
+    #     """
+    #     state_values, action_logits = self.forward(x)
+    #     # shape: [n_envs,], [n_envs, n_actions]
+    #     eligible_actions_mask = (
+    #         torch.Tensor(eligible_actions_mask).type(torch.bool).to(self.device)
+    #     )
+    #     action_logits[~eligible_actions_mask] = -float("inf")
+
+    #     action_pd = torch.distributions.Categorical(
+    #         logits=action_logits
+    #     )  # implicitly uses softmax
+
+    #     actions_A = action_pd.sample()
+
+    #     action_log_probs = action_pd.log_prob(actions_A)
+    #     entropy = action_pd.entropy()
+    #     return (actions_A, action_log_probs, state_values, entropy)
 
     def get_losses(
         self,
@@ -216,14 +245,14 @@ class A2C(nn.Module):
 
 
 model_dir = Path("./models")
-model_path = model_dir.joinpath("A2C.pt")
+model_path = model_dir.joinpath("A2C_b.pt")
 log_dir = Path("./logs/A2C")
-n_envs = 24
+n_envs = 16
 skip_frames = 8
 critic_lr = 3e-4
 actor_lr = 1e-5
-gamma = 0.999
-lam = 0.99  # hyperparameter for GAE
+gamma = 0.99
+lam = 0.95  # hyperparameter for GAE
 ent_coef = 0.15  # coefficient for the entropy bonus (to encourage exploration)
 n_updates = 40000
 n_demo = 5
@@ -232,6 +261,8 @@ save_every_n_updates = 200  # not recommended less than 100
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 obs_size = 48
 n_action = 19
+epsilon = 0.2
+ent_threshold = 0.1
 
 
 def make_env(render_mode=None):
@@ -267,6 +298,8 @@ def train(n_updates):
         critic_lr=critic_lr,
         actor_lr=actor_lr,
         n_envs=n_envs,
+        epsilon=epsilon,
+        ent_threshold=ent_threshold,
     )
 
     if not os.path.exists(model_dir) or not os.path.isdir(model_dir):
